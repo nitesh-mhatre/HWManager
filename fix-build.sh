@@ -18,7 +18,6 @@ cat << 'EOF' > app.json
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "scheme": "hotwheels-recorder",
     "ios": {
       "supportsTablet": true,
@@ -52,7 +51,7 @@ cat << 'EOF' > app.json
         "expo-build-properties",
         {
           "android": {
-            "kotlinVersion": "2.3.0"
+            "kotlinVersion": "2.1.20"
           }
         }
       ],

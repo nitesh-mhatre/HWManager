@@ -6,7 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "scheme": "hotwheels-recorder",
     "ios": {
       "supportsTablet": true,
@@ -40,7 +39,7 @@
         "expo-build-properties",
         {
           "android": {
-            "kotlinVersion": "2.1.0",
+            "kotlinVersion": "2.1.20",
             "compileSdkVersion": 35,
             "targetSdkVersion": 35,
             "extraKotlinCompilerArgs": [
