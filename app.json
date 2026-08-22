@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "Hot Wheels Recorder",
+    "slug": "hotwheels-recorder",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "scheme": "hotwheels-recorder",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.hotwheels.recorder",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Hot Wheels Recorder needs camera access to scan your Hot Wheels cars and auto-detect details.",
+        "NSPhotoLibraryUsageDescription": "Hot Wheels Recorder needs photo library access to import car images."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1a1a2e"
+      },
+      "package": "com.hotwheels.recorder",
+      "permissions": ["CAMERA"]
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Hot Wheels Recorder to use the camera to scan your cars."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Hot Wheels Recorder to access your photos to import car images."
+        }
+      ]
+    ]
+  }
+}
