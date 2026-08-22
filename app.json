@@ -39,9 +39,9 @@
         "expo-build-properties",
         {
           "android": {
-            "kotlinVersion": "2.1.20",
-            "compileSdkVersion": 35,
-            "targetSdkVersion": 35,
+            "kotlinVersion": "2.2.20",
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
             "extraKotlinCompilerArgs": [
               "-Xskip-metadata-version-check"
             ]
@@ -51,8 +51,8 @@
       [
         "react-native-google-mobile-ads",
         {
-          "androidAppId": "ca-app-pub-2889632845666311~7452613987",
-          "iosAppId": "ca-app-pub-3940256099942544~1458671072"
+          "android_app_id": "ca-app-pub-2889632845666311~7452613987",
+          "ios_app_id": "ca-app-pub-3940256099942544~1458671072"
         }
       ],
       [
