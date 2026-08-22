@@ -1,4 +1,4 @@
-import { NvidiaSettings, ScanResult } from '../types';
+import { NvidiaSettings, ScanResult, PriceRange } from '../types';
 import * as FileSystem from 'expo-file-system';
 
 const DEFAULT_BASE = 'https://integrate.api.nvidia.com/v1';
@@ -15,7 +15,6 @@ export async function fetchModels(apiKey: string, baseUrl?: string): Promise<str
     const models: string[] = data.data?.map((m: any) => m.id) ?? [];
     return models.sort();
   } catch {
-    // Fallback: well-known free NVIDIA models
     return [
       'meta/llama-3.1-8b-instruct',
       'meta/llama-3.2-11b-vision-instruct',
@@ -32,23 +31,29 @@ export async function fetchModels(apiKey: string, baseUrl?: string): Promise<str
 
 // ─── Helper: read image as base64 ────────────────────────────
 async function imageToBase64(uri: string): Promise<string> {
+  // Try expo-file-system first
   try {
     const base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: 'base64' as any,
     });
-    return base64;
-  } catch {
-    // If local file fails, try fetching the URI directly
+    if (base64 && base64.length > 100) return base64;
+  } catch {}
+  // Fallback: fetch as blob
+  try {
     const res = await fetch(uri);
     const blob = await res.blob();
-    return new Promise<string>((resolve) => {
+    return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => {
-        const result = (reader.result as string).split(',')[1];
-        resolve(result);
+        const data = (reader.result as string).split(',')[1];
+        if (data) resolve(data);
+        else reject(new Error('Failed to convert image to base64'));
       };
+      reader.onerror = () => reject(new Error('FileReader failed'));
       reader.readAsDataURL(blob);
     });
+  } catch (e: any) {
+    throw new Error('Could not read image: ' + (e.message || 'unknown error'));
   }
 }
 
@@ -83,76 +88,199 @@ async function chatCompletion(
   return data.choices?.[0]?.message?.content ?? '';
 }
 
-// ─── Scan a Hot Wheels car from image ────────────────────────
+// ─── Parse JSON from AI response ─────────────────────────────
+function parseJsonResponse(response: string): any {
+  let cleaned = response.trim();
+  // Remove markdown fences
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+  }
+  // Try direct parse
+  try {
+    return JSON.parse(cleaned);
+  } catch {}
+  // Try extracting JSON object
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    try {
+      return JSON.parse(cleaned.substring(start, end + 1));
+    } catch {}
+  }
+  // Try regex extraction
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch {}
+  }
+  throw new Error('Could not parse JSON from AI response');
+}
+
+// ─── Single car scan ─────────────────────────────────────────
 export async function scanCarFromImage(
   settings: NvidiaSettings,
   imageUri: string
 ): Promise<ScanResult> {
   const base64 = await imageToBase64(imageUri);
 
-  const prompt = `You are a Hot Wheels car expert and collector. Analyze this image of a Hot Wheels car package/card or loose car and extract ALL identifiable details.
+  const systemPrompt = 'You are a Hot Wheels card reader. Read text and identify visual features from the image. Return ONLY valid JSON. If you cannot read something, use "Unknown". Do NOT guess.';
 
-Search your knowledge for this specific Hot Wheels model and provide accurate information.
+  const userPrompt = `Read this Hot Wheels card and return ONLY this JSON (no extra text):
 
-Respond in JSON format ONLY (no markdown, no explanation), with these fields:
 {
-  "name": "Full name of the car (e.g., '1967 Custom Camaro')",
-  "year": "Year this casting was released (e.g., '2023')",
-  "series": "Series name if visible (e.g., 'HW primaries', 'Fast & Furious')",
-  "color": "Main color of the car",
-  "model": "Casting/mold name if different from name",
-  "scale": "Scale (usually 1:64)",
-  "rarity": "Mainline, Treasure Hunt, Super Treasure Hunt, Zamac, Factory Sealed, etc.",
-  "barcode": "UPC/barcode if visible on card",
-  "manufacturer": "Manufacturer (usually Mattel)",
-  "tampos": "Side/top decoration details if visible",
-  "wheelType": "Wheel type if identifiable (e.g., 10SP, MC5, OH5)",
-  "baseColor": "Color of the metal/plastic base if visible",
-  "expectedPrice": 0.00,
-  "confidence": "high/medium/low",
-  "searchResults": "Any additional collector info about this model's value and rarity"
-}
-
-If you cannot determine a field, use an empty string. For expectedPrice, provide estimated market value in USD as a number.`;
+  "name": "car name from top of card",
+  "year": "year from copyright symbol near barcode",
+  "series": "series name from card",
+  "color": "car body color",
+  "model": "casting name",
+  "rarity": "Mainline or Treasure Hunt or Super Treasure Hunt or Premium",
+  "condition": "Mint or Near Mint or Good or Poor",
+  "conditionNotes": "describe corners, edges, surface, blister",
+  "tampos": "decorations on car body",
+  "wheelType": "wheel type code",
+  "baseColor": "base color",
+  "variant": "color variant info"
+}`;
 
   const messages = [
-    {
-      role: 'system',
-      content: 'You are a Hot Wheels collector expert with deep knowledge of every casting, series, variant, and market value. Always respond with valid JSON only.',
-    },
+    { role: 'system', content: systemPrompt },
     {
       role: 'user',
       content: [
-        { type: 'text', text: prompt },
-        {
-          type: 'image_url',
-          image_url: { url: `data:image/jpeg;base64,${base64}` },
-        },
+        { type: 'text', text: userPrompt },
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64}` } },
       ],
     },
   ];
 
   const response = await chatCompletion(settings, messages, {
-    temperature: 0.1,
-    max_tokens: 1500,
+    temperature: 0.0,
+    max_tokens: 800,
   });
 
-  // Parse JSON from response, handling potential markdown wrapping
+  const data = parseJsonResponse(response);
+  return {
+    name: data.name || 'Unknown',
+    year: data.year || 'Unknown',
+    series: data.series || '',
+    color: data.color || '',
+    model: data.model || '',
+    scale: '1:64',
+    rarity: data.rarity || 'Mainline',
+    condition: data.condition || 'Unknown',
+    conditionNotes: data.conditionNotes || '',
+    barcode: '',
+    manufacturer: 'Mattel',
+    tampos: data.tampos || '',
+    wheelType: data.wheelType || '',
+    baseColor: data.baseColor || '',
+    variant: data.variant || '',
+    expectedPrice: 0,
+    priceINR: 0,
+    priceRange: { min: 0, max: 0, avg: 0 },
+    priceSources: [],
+    confidence: data.condition === 'Unknown' && data.name === 'Unknown' ? 'low' : 'medium',
+    status: 'SCAN_ONLY',
+    matchScore: 0,
+    history: '',
+    searchResults: '',
+  };
+}
+
+// ─── Bulk scan: multiple cars from one photo ─────────────────
+export async function scanBulkFromImage(
+  settings: NvidiaSettings,
+  imageUri: string
+): Promise<ScanResult[]> {
+  const base64 = await imageToBase64(imageUri);
+
+  const systemPrompt = 'You are a Hot Wheels card reader. Read text from each car card. Return ONLY a JSON array. If you cannot read something, use "Unknown".';
+
+  const userPrompt = `This image may have MULTIPLE Hot Wheels cars. For EACH car, return a JSON object in an array. Each object:
+
+{
+  "name": "car name from card",
+  "year": "year from copyright symbol",
+  "series": "series name",
+  "color": "car body color",
+  "model": "casting name",
+  "rarity": "Mainline or Treasure Hunt or Super Treasure Hunt or Premium",
+  "condition": "Mint or Near Mint or Good or Poor",
+  "conditionNotes": "card condition",
+  "tampos": "decorations",
+  "wheelType": "wheel type",
+  "baseColor": "base color",
+  "variant": "variant info"
+}
+
+Return JSON array only. Skip cars you cannot read.`;
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: userPrompt },
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64}` } },
+      ],
+    },
+  ];
+
+  const response = await chatCompletion(settings, messages, {
+    temperature: 0.0,
+    max_tokens: 2000,
+  });
+
   let cleaned = response.trim();
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
   }
 
+  let arr: any[];
   try {
-    return JSON.parse(cleaned);
+    arr = JSON.parse(cleaned);
+    if (!Array.isArray(arr)) arr = [arr];
   } catch {
-    // Try to extract JSON from the response
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+    const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+    if (arrayMatch) {
+      arr = JSON.parse(arrayMatch[0]);
+    } else {
+      const singleMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (singleMatch) {
+        arr = [JSON.parse(singleMatch[0])];
+      } else {
+        throw new Error('Could not parse bulk scan results');
+      }
     }
-    throw new Error('Could not parse scan result from AI response');
   }
+
+  return arr.map((data) => ({
+    name: data.name || 'Unknown',
+    year: data.year || 'Unknown',
+    series: data.series || '',
+    color: data.color || '',
+    model: data.model || '',
+    scale: '1:64',
+    rarity: data.rarity || 'Mainline',
+    condition: data.condition || 'Unknown',
+    conditionNotes: data.conditionNotes || '',
+    barcode: '',
+    manufacturer: 'Mattel',
+    tampos: data.tampos || '',
+    wheelType: data.wheelType || '',
+    baseColor: data.baseColor || '',
+    variant: data.variant || '',
+    expectedPrice: 0,
+    priceINR: 0,
+    priceRange: { min: 0, max: 0, avg: 0 },
+    priceSources: [],
+    confidence: 'medium',
+    status: 'SCAN_ONLY',
+    matchScore: 0,
+    history: '',
+    searchResults: '',
+  }));
 }
 
 // ─── Search for car value online ──────────────────────────────
@@ -160,42 +288,49 @@ export async function searchCarValue(
   settings: NvidiaSettings,
   carName: string,
   year: string
-): Promise<{ estimatedValue: string; searchInfo: string }> {
+): Promise<{ estimatedValue: string; searchInfo: string; priceSources: { source: string; price: number; reference: string }[] }> {
   const messages = [
     {
+      system: 'You are a Hot Wheels collector market expert.',
       role: 'system',
-      content: 'You are a Hot Wheels market expert. Provide accurate collector market values.',
+      content: 'You are a Hot Wheels collector market expert. You provide REAL collector resale prices based on actual market knowledge. You understand that prices vary by year, rarity, condition, and color variant. You provide honest assessments.',
     },
     {
       role: 'user',
-      content: `Search your knowledge for the current collector market value of this Hot Wheels car:
-Name: ${carName}
-Year: ${year}
+      content: `What is the current collector resale market value for this Hot Wheels car in India?
+
+Car: ${carName}
+Production Year: ${year}
+
+IMPORTANT: These are COLLECTOR RESALE prices, not retail store prices. A common 2024 Mainline car resells for ₹80-150, NOT ₹299. A 2010 car resells for ₹200-500. A Treasure Hunt resells for ₹400-2500. Condition affects price by 30-65%.
 
 Provide:
-1. Estimated market value range in USD
-2. Key factors affecting value (rarity, condition, demand)
-3. Notable sales or market trends
+1. Honest price estimate based on year, rarity, and typical condition
+2. How price changes based on condition (Mint vs Good vs Poor)
+3. Reference sources: eBay sold, Mercari, collector communities
+4. What makes this car more or less valuable
 
-Respond in JSON format:
-{"estimatedValue": "$X.XX - $X.XX", "searchInfo": "detailed information"}`,
+Respond in JSON:
+{
+  "estimatedValue": "₹100 - ₹200",
+  "searchInfo": "detailed market analysis explaining why this price range, factors affecting value, and condition impact",
+  "priceSources": [
+    {"source": "eBay Sold Listings", "price": 150, "reference": "based on recent completed auctions for similar model/year"},
+    {"source": "Collector Community", "price": 120, "reference": "FB group collector reported sales in India"}
+  ]
+}`,
     },
   ];
 
   const response = await chatCompletion(settings, messages, {
-    temperature: 0.2,
+    temperature: 0.1,
     max_tokens: 800,
   });
 
-  let cleaned = response.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-  }
-
   try {
-    return JSON.parse(cleaned);
+    return parseJsonResponse(response);
   } catch {
-    return { estimatedValue: 'N/A', searchInfo: response };
+    return { estimatedValue: 'N/A', searchInfo: response, priceSources: [] };
   }
 }
 
@@ -214,3 +349,9 @@ export async function askHotWheelsExpert(
 
   return chatCompletion(settings, messages);
 }
+
+// ─── Re-export identification pipeline ───────────────────────
+export { identifyHotWheel, identifyBulkHotWheels } from './identification';
+
+// ─── Re-export research pipeline ─────────────────────────────
+export { researchHotWheelComplete, refreshMarketData, getResearchSources, clearCache } from './research';

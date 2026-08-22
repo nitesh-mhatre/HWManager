@@ -1,13 +1,20 @@
 import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
-  return (
-    <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.5 }}>{emoji}</Text>
-  );
+function TabIcon({ icon, iconLib, focused }: { icon: string; iconLib: 'material' | 'materialCommunity'; focused: boolean }) {
+  const color = focused ? '#e63946' : '#555';
+  const size = 24;
+
+  if (iconLib === 'materialCommunity') {
+    return <MaterialCommunityIcons name={icon as any} size={size} color={color} />;
+  }
+  return <MaterialIcons name={icon as any} size={size} color={color} />;
 }
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tabs
       screenOptions={{
@@ -15,9 +22,10 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: '#0f0f23',
           borderTopColor: '#222',
-          height: 85,
-          paddingBottom: 25,
-          paddingTop: 5,
+          borderTopWidth: 1,
+          height: 60 + insets.bottom,
+          paddingBottom: insets.bottom > 0 ? insets.bottom : 20,
+          paddingTop: 8,
         },
         tabBarActiveTintColor: '#e63946',
         tabBarInactiveTintColor: '#555',
@@ -32,7 +40,7 @@ export default function TabLayout() {
         options={{
           title: 'Garage',
           tabBarIcon: ({ focused }) => (
-            <TabIcon emoji="🏎️" focused={focused} />
+            <TabIcon icon="car" iconLib="materialCommunity" focused={focused} />
           ),
         }}
       />
@@ -41,7 +49,7 @@ export default function TabLayout() {
         options={{
           title: 'Wishlist',
           tabBarIcon: ({ focused }) => (
-            <TabIcon emoji="⭐" focused={focused} />
+            <TabIcon icon="star" iconLib="material" focused={focused} />
           ),
         }}
       />
@@ -50,7 +58,7 @@ export default function TabLayout() {
         options={{
           title: 'Scan',
           tabBarIcon: ({ focused }) => (
-            <TabIcon emoji="📷" focused={focused} />
+            <TabIcon icon="barcode-scan" iconLib="materialCommunity" focused={focused} />
           ),
         }}
       />
@@ -59,7 +67,7 @@ export default function TabLayout() {
         options={{
           title: 'Add',
           tabBarIcon: ({ focused }) => (
-            <TabIcon emoji="➕" focused={focused} />
+            <TabIcon icon="add-circle" iconLib="material" focused={focused} />
           ),
         }}
       />
@@ -68,7 +76,7 @@ export default function TabLayout() {
         options={{
           title: 'Settings',
           tabBarIcon: ({ focused }) => (
-            <TabIcon emoji="⚙️" focused={focused} />
+            <TabIcon icon="settings" iconLib="material" focused={focused} />
           ),
         }}
       />

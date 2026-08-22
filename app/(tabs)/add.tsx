@@ -2,406 +2,647 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
   Alert,
-  Platform,
-  KeyboardAvoidingView,
   Image,
-  Switch,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { addCar } from '../../src/services/storage';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { addCar, getSettings } from '../../src/services/storage';
+import { identifyHotWheel, researchHotWheelComplete } from '../../src/services/nvidia';
+import { ScanResult } from '../../src/types';
 
 export default function AddScreen() {
   const router = useRouter();
-  const [name, setName] = useState('');
-  const [year, setYear] = useState('');
-  const [series, setSeries] = useState('');
-  const [color, setColor] = useState('');
-  const [model, setModel] = useState('');
-  const [scale, setScale] = useState('1:64');
-  const [rarity, setRarity] = useState('Mainline');
-  const [condition, setCondition] = useState('Mint');
-  const [buyPrice, setBuyPrice] = useState('');
-  const [expectedPrice, setExpectedPrice] = useState('');
-  const [remarks, setRemarks] = useState('');
-  const [images, setImages] = useState<string[]>([]);
-  const [inCollection, setInCollection] = useState(true);
-  const [barcode, setBarcode] = useState('');
-  const [manufacturer, setManufacturer] = useState('Mattel');
-  const [tampos, setTampos] = useState('');
-  const [wheelType, setWheelType] = useState('');
-  const [baseColor, setBaseColor] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [phase, setPhase] = useState<'pick' | 'analyzing' | 'result'>('pick');
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [result, setResult] = useState<ScanResult | null>(null);
+  const [error, setError] = useState('');
+  const [researchData, setResearchData] = useState<any>(null);
 
-  const addImage = async (useCamera: boolean) => {
+  const pickImage = async (useCamera: boolean) => {
     try {
-      let result;
+      let pickerResult;
       if (useCamera) {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
         if (!perm.granted) {
           Alert.alert('Permission needed', 'Camera access is required.');
           return;
         }
-        result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ['images'],
-          quality: 0.8,
-        });
+        pickerResult = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
       } else {
-        result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ['images'],
-          quality: 0.8,
-        });
+        pickerResult = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
       }
-      if (!result.canceled && result.assets[0]) {
-        setImages([...images, result.assets[0].uri]);
+      if (!pickerResult.canceled && pickerResult.assets[0]) {
+        setImageUri(pickerResult.assets[0].uri);
+        analyzeImage(pickerResult.assets[0].uri);
       }
     } catch (e: any) {
       Alert.alert('Error', e.message);
     }
   };
 
-  const removeImage = (index: number) => {
-    setImages(images.filter((_, i) => i !== index));
-  };
-
-  const handleSave = async () => {
-    if (!name.trim()) {
-      Alert.alert('Name required', 'Please enter a car name.');
-      return;
-    }
-    setSaving(true);
+  const analyzeImage = async (uri: string) => {
+    setPhase('analyzing');
+    setError('');
     try {
-      const car = {
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-        name: name.trim(),
-        year: year.trim(),
-        series: series.trim(),
-        color: color.trim(),
-        model: model.trim(),
-        scale: scale.trim(),
-        rarity,
-        condition,
-        buyPrice: parseFloat(buyPrice) || 0,
-        expectedPrice: parseFloat(expectedPrice) || 0,
-        remarks: remarks.trim(),
-        images,
-        inCollection,
-        dateAdded: new Date().toISOString(),
-        barcode: barcode.trim(),
-        manufacturer: manufacturer.trim(),
-        tampos: tampos.trim(),
-        wheelType: wheelType.trim(),
-        baseColor: baseColor.trim(),
-      };
-      await addCar(car);
-      Alert.alert('Saved! 🏎️', `${car.name} added to your ${inCollection ? 'Garage' : 'Wishlist'}!`, [
-        {
-          text: `View ${inCollection ? 'Garage' : 'Wishlist'}`,
-          onPress: () => router.push(inCollection ? '/(tabs)/garage' : '/(tabs)/wishlist'),
-        },
-        { text: 'Add Another', onPress: resetForm },
-      ]);
+      const settings = await getSettings();
+      if (!settings) {
+        Alert.alert('Not configured', 'Please set up your API key in Settings first.', [
+          { text: 'Go to Settings', onPress: () => router.push('/(tabs)/settings') },
+        ]);
+        setPhase('pick');
+        return;
+      }
+      const { result: scanResult, research } = await researchHotWheelComplete(settings, uri);
+      setResult(scanResult);
+      setResearchData(research);
+      setPhase('result');
     } catch (e: any) {
-      Alert.alert('Error', e.message);
-    } finally {
-      setSaving(false);
+      setError(e.message);
+      setPhase('result');
+      setResult(null);
     }
   };
 
-  const resetForm = () => {
-    setName('');
-    setYear('');
-    setSeries('');
-    setColor('');
-    setModel('');
-    setScale('1:64');
-    setRarity('Mainline');
-    setCondition('Mint');
-    setBuyPrice('');
-    setExpectedPrice('');
-    setRemarks('');
-    setImages([]);
-    setBarcode('');
-    setManufacturer('Mattel');
-    setTampos('');
-    setWheelType('');
-    setBaseColor('');
+  const addToGarage = async () => {
+    if (!result) return;
+    const car = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      name: result.name || 'Unknown Car',
+      year: result.year || '',
+      series: result.series || '',
+      color: result.color || '',
+      model: result.model || '',
+      scale: result.scale || '1:64',
+      rarity: result.rarity || '',
+      condition: result.condition || 'Mint',
+      buyPrice: 0,
+      expectedPrice: result.priceINR || 0,
+      priceINR: result.priceINR || 0,
+      priceRange: result.priceRange || { min: 0, max: 0, avg: 0 },
+      priceSources: result.priceSources || [],
+      remarks: result.searchResults || '',
+      images: imageUri ? [imageUri] : [],
+      inCollection: true,
+      dateAdded: new Date().toISOString(),
+      barcode: result.barcode || '',
+      manufacturer: result.manufacturer || 'Mattel',
+      tampos: result.tampos || '',
+      wheelType: result.wheelType || '',
+      baseColor: result.baseColor || '',
+      history: result.history || '',
+      status: result.status || 'UNKNOWN',
+      matchScore: result.matchScore || 0,
+      isSold: false,
+      soldPrice: 0,
+      soldDate: '',
+      soldPlatform: '',
+      soldNotes: '',
+    };
+    await addCar(car);
+    Alert.alert('Added!', `${car.name} (${car.year}) — ₹${car.priceINR} added to Garage!`, [
+      { text: 'View Garage', onPress: () => router.push('/(tabs)/garage') },
+      { text: 'Done', onPress: reset },
+    ]);
   };
 
-  const RARITIES = ['Mainline', 'Treasure Hunt', 'Super Treasure Hunt', 'Zamac', 'Factory Sealed', 'Premium', 'Hot Wheels id', 'RLC', 'Other'];
-  const CONDITIONS = ['Mint', 'Near Mint', 'Good', 'Fair', 'Poor', 'Damaged'];
+  const addToWishlist = async () => {
+    if (!result) return;
+    const car = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      name: result.name || 'Unknown Car',
+      year: result.year || '',
+      series: result.series || '',
+      color: result.color || '',
+      model: result.model || '',
+      scale: result.scale || '1:64',
+      rarity: result.rarity || '',
+      condition: '',
+      buyPrice: 0,
+      expectedPrice: result.priceINR || 0,
+      priceINR: result.priceINR || 0,
+      priceRange: result.priceRange || { min: 0, max: 0, avg: 0 },
+      priceSources: result.priceSources || [],
+      remarks: result.searchResults || '',
+      images: imageUri ? [imageUri] : [],
+      inCollection: false,
+      dateAdded: new Date().toISOString(),
+      barcode: result.barcode || '',
+      manufacturer: result.manufacturer || 'Mattel',
+      tampos: result.tampos || '',
+      wheelType: result.wheelType || '',
+      baseColor: result.baseColor || '',
+      history: result.history || '',
+      status: result.status || 'UNKNOWN',
+      matchScore: result.matchScore || 0,
+      isSold: false,
+      soldPrice: 0,
+      soldDate: '',
+      soldPlatform: '',
+      soldNotes: '',
+    };
+    await addCar(car);
+    Alert.alert('Added to Wishlist!', `${car.name} — ₹${car.priceINR}`, [
+      { text: 'View Wishlist', onPress: () => router.push('/(tabs)/wishlist') },
+      { text: 'Done', onPress: reset },
+    ]);
+  };
+
+  const reset = () => {
+    setPhase('pick');
+    setImageUri(null);
+    setResult(null);
+    setError('');
+    setResearchData(null);
+  };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>➕ Add Car</Text>
-          <Text style={styles.headerSub}>Manually enter your Hot Wheels car details</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.scroll}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerRow}>
+          <MaterialIcons name="add-circle" size={28} color="#e63946" />
+          <View>
+            <Text style={styles.headerTitle}>Add Car</Text>
+            <Text style={styles.headerSub}>AI identifies all details from your photo</Text>
+          </View>
         </View>
+      </View>
 
-        {/* Photos */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📷 Photos</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageRow}>
-            {images.map((uri, i) => (
-              <TouchableOpacity key={i} onLongPress={() => removeImage(i)}>
-                <Image source={{ uri }} style={styles.thumbImage} />
-                <TouchableOpacity style={styles.removeImageBtn} onPress={() => removeImage(i)}>
-                  <Text style={styles.removeImageBtnText}>✕</Text>
+      {phase === 'pick' && (
+        <>
+          {/* Photo input */}
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={styles.actionCard} onPress={() => pickImage(true)}>
+              <View style={[styles.iconCircle, { backgroundColor: 'rgba(230, 57, 70, 0.15)' }]}>
+                <MaterialIcons name="camera-alt" size={28} color="#e63946" />
+              </View>
+              <Text style={styles.actionLabel}>Take Photo</Text>
+              <Text style={styles.actionDesc}>Snap your car card</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionCard} onPress={() => pickImage(false)}>
+              <View style={[styles.iconCircle, { backgroundColor: 'rgba(77, 166, 255, 0.15)' }]}>
+                <MaterialIcons name="photo-library" size={28} color="#4da6ff" />
+              </View>
+              <Text style={styles.actionLabel}>Pick Image</Text>
+              <Text style={styles.actionDesc}>From your gallery</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.infoCard}>
+            <MaterialIcons name="info-outline" size={16} color="#4da6ff" />
+            <Text style={styles.infoText}>
+              Just take a photo of the Hot Wheels card — AI will automatically identify the car name, year, series, rarity, price, and full history. No manual entry needed!
+            </Text>
+          </View>
+        </>
+      )}
+
+      {phase === 'analyzing' && (
+        <View style={styles.statusCard}>
+          {imageUri && <Image source={{ uri: imageUri }} style={styles.miniPreview} resizeMode="cover" />}
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#e63946" />
+            <MaterialCommunityIcons name="car" size={40} color="#e63946" style={styles.loadingCarIcon} />
+          </View>
+          <Text style={styles.statusText}>AI is identifying your car...</Text>
+          <Text style={styles.statusDesc}>Reading card details, year, pricing & history</Text>
+        </View>
+      )}
+
+      {phase === 'result' && (
+        <>
+          {error ? (
+            <View style={styles.errorCard}>
+              <MaterialIcons name="error-outline" size={40} color="#ff6b6b" />
+              <Text style={styles.errorText}>{error}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={reset}>
+                <MaterialIcons name="refresh" size={18} color="#fff" />
+                <Text style={styles.retryButtonText}>Try Again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : result ? (
+            <>
+              {imageUri && <Image source={{ uri: imageUri }} style={styles.miniPreview} resizeMode="cover" />}
+
+              {/* AI Details */}
+              <View style={styles.aiSection}>
+                <View style={styles.aiHeader}>
+                  <MaterialCommunityIcons name="robot" size={18} color="#4da6ff" />
+                  <Text style={styles.aiTitle}>AI Identified</Text>
+                  <View style={[
+                    styles.confidenceBadge,
+                    result.confidence === 'high' ? styles.confHigh :
+                    result.confidence === 'medium' ? styles.confMed : styles.confLow
+                  ]}>
+                    <Text style={styles.confText}>{result.confidence || 'medium'}</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.carName}>{result.name || 'Unknown Car'}</Text>
+                <Text style={styles.carSub}>
+                  {result.year ? `${result.year}` : ''}
+                  {result.model ? ` · ${result.model}` : ''}
+                </Text>
+
+                <View style={styles.tags}>
+                  {result.rarity ? (
+                    <View style={[styles.tag, styles.tagRarity]}>
+                      <MaterialIcons name="star" size={10} color="#ccc" />
+                      <Text style={styles.tagText}>{result.rarity}</Text>
+                    </View>
+                  ) : null}
+                  {result.condition ? (
+                    <View style={[styles.tag, styles.tagCondition]}>
+                      <MaterialIcons name="check-circle" size={10} color="#ccc" />
+                      <Text style={styles.tagText}>{result.condition}</Text>
+                    </View>
+                  ) : null}
+                  {result.series ? (
+                    <View style={[styles.tag, styles.tagSeries]}>
+                      <MaterialIcons name="collections-bookmark" size={10} color="#ccc" />
+                      <Text style={styles.tagText}>{result.series}</Text>
+                    </View>
+                  ) : null}
+                  {result.variant ? (
+                    <View style={[styles.tag, styles.tagVariant]}>
+                      <MaterialIcons name="palette" size={10} color="#ccc" />
+                      <Text style={styles.tagText}>{result.variant}</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                {result.conditionNotes ? (
+                  <Text style={styles.conditionNotes}>
+                    {result.conditionNotes}
+                  </Text>
+                ) : null}
+
+                <View style={styles.aiDetails}>
+                  {result.color ? (
+                    <View style={styles.aiRow}>
+                      <MaterialIcons name="palette" size={14} color="#888" />
+                      <Text style={styles.aiLabel}>Color</Text>
+                      <Text style={styles.aiValue}>{result.color}</Text>
+                    </View>
+                  ) : null}
+                  {result.scale ? (
+                    <View style={styles.aiRow}>
+                      <MaterialIcons name="straighten" size={14} color="#888" />
+                      <Text style={styles.aiLabel}>Scale</Text>
+                      <Text style={styles.aiValue}>{result.scale}</Text>
+                    </View>
+                  ) : null}
+                  {result.manufacturer ? (
+                    <View style={styles.aiRow}>
+                      <MaterialIcons name="business" size={14} color="#888" />
+                      <Text style={styles.aiLabel}>Maker</Text>
+                      <Text style={styles.aiValue}>{result.manufacturer}</Text>
+                    </View>
+                  ) : null}
+                  {result.wheelType ? (
+                    <View style={styles.aiRow}>
+                      <MaterialIcons name="loop" size={14} color="#888" />
+                      <Text style={styles.aiLabel}>Wheels</Text>
+                      <Text style={styles.aiValue}>{result.wheelType}</Text>
+                    </View>
+                  ) : null}
+                  {result.baseColor ? (
+                    <View style={styles.aiRow}>
+                      <MaterialIcons name="square" size={14} color="#888" />
+                      <Text style={styles.aiLabel}>Base</Text>
+                      <Text style={styles.aiValue}>{result.baseColor}</Text>
+                    </View>
+                  ) : null}
+                  {result.tampos ? (
+                    <View style={styles.aiRow}>
+                      <MaterialIcons name="brush" size={14} color="#888" />
+                      <Text style={styles.aiLabel}>Tampos</Text>
+                      <Text style={styles.aiValue}>{result.tampos}</Text>
+                    </View>
+                  ) : null}
+                  {result.barcode ? (
+                    <View style={styles.aiRow}>
+                      <MaterialCommunityIcons name="barcode" size={14} color="#888" />
+                      <Text style={styles.aiLabel}>Barcode</Text>
+                      <Text style={styles.aiValue}>{result.barcode}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+
+              {/* Car History */}
+              {result.history ? (
+                <View style={styles.historyCard}>
+                  <View style={styles.historyHeader}>
+                    <MaterialIcons name="history-edu" size={18} color="#FFD700" />
+                    <Text style={styles.historyTitle}>Car History & Background</Text>
+                  </View>
+                  <Text style={styles.historyText}>{result.history}</Text>
+                </View>
+              ) : null}
+
+              {/* Price Range */}
+              {result.priceRange && result.priceRange.min > 0 && (
+                <View style={styles.priceRangeCard}>
+                  <View style={styles.priceRangeHeader}>
+                    <MaterialIcons name="show-chart" size={18} color="#4caf50" />
+                    <Text style={styles.priceRangeTitle}>Market Value (INR)</Text>
+                  </View>
+                  <View style={styles.priceRangeRow}>
+                    <View style={styles.priceRangeBox}>
+                      <Text style={styles.priceRangeLabel}>Low</Text>
+                      <Text style={styles.priceRangeValue}>₹{result.priceRange.min.toLocaleString('en-IN')}</Text>
+                    </View>
+                    <MaterialIcons name="arrow-forward" size={20} color="#555" />
+                    <View style={styles.priceRangeBox}>
+                      <Text style={styles.priceRangeLabel}>Avg</Text>
+                      <Text style={[styles.priceRangeValue, { color: '#4caf50' }]}>₹{result.priceRange.avg.toLocaleString('en-IN')}</Text>
+                    </View>
+                    <MaterialIcons name="arrow-forward" size={20} color="#555" />
+                    <View style={styles.priceRangeBox}>
+                      <Text style={styles.priceRangeLabel}>High</Text>
+                      <Text style={styles.priceRangeValue}>₹{result.priceRange.max.toLocaleString('en-IN')}</Text>
+                    </View>
+                  </View>
+                  {result.priceSources && result.priceSources.length > 0 && (
+                    <View style={styles.priceSourcesList}>
+                      <Text style={styles.priceSourcesHeader}>Collector References</Text>
+                      {result.priceSources.map((source, idx) => (
+                        <View key={idx} style={styles.priceSourceItem}>
+                          <View style={styles.priceSourceLeft}>
+                            <Text style={styles.priceSourceName}>{source.source || 'Collector'}</Text>
+                            <Text style={styles.priceSourceRef}>{source.reference || ''}</Text>
+                          </View>
+                          <Text style={styles.priceSourcePrice}>₹{source.price.toLocaleString('en-IN')}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* Market Info */}
+              {result.searchResults ? (
+                <View style={styles.infoCard}>
+                  <View style={styles.infoHeader}>
+                    <MaterialIcons name="trending-up" size={18} color="#4da6ff" />
+                    <Text style={styles.infoTitle}>Market Info</Text>
+                  </View>
+                  <Text style={styles.infoText}>{result.searchResults}</Text>
+                </View>
+              ) : null}
+
+              {/* Research Sources */}
+              {researchData && researchData.researchSources && researchData.researchSources.length > 0 && (
+                <View style={styles.researchCard}>
+                  <View style={styles.researchHeader}>
+                    <MaterialIcons name="public" size={18} color="#4da6ff" />
+                    <Text style={styles.researchTitle}>Internet Research</Text>
+                    <View style={styles.researchBadge}>
+                      <Text style={styles.researchBadgeText}>{researchData.researchSources.length} sources</Text>
+                    </View>
+                  </View>
+
+                  {researchData.release && researchData.release.year && (
+                    <View style={styles.researchSection}>
+                      <View style={styles.researchRow}>
+                        <MaterialIcons name="calendar-today" size={14} color="#FFD700" />
+                        <Text style={styles.researchLabel}>Release Year</Text>
+                        <Text style={styles.researchValue}>{researchData.release.year}</Text>
+                      </View>
+                      <Text style={styles.researchStatus}>
+                        {researchData.release.status === 'CONFIRMED' ? `✓ Verified from ${researchData.release.sources.length} sources` : researchData.release.notes}
+                      </Text>
+                    </View>
+                  )}
+
+                  {researchData.market && researchData.market.salesCount > 0 && (
+                    <View style={styles.researchSection}>
+                      <View style={styles.researchRow}>
+                        <MaterialIcons name="trending-up" size={14} color="#4caf50" />
+                        <Text style={styles.researchLabel}>Market Data</Text>
+                        <Text style={styles.researchValue}>{researchData.market.salesCount} observations</Text>
+                      </View>
+                      <Text style={styles.researchStatus}>{researchData.market.notes}</Text>
+                    </View>
+                  )}
+
+                  <View style={styles.researchSourcesList}>
+                    {researchData.researchSources.slice(0, 5).map((source: any, idx: number) => (
+                      <View key={idx} style={styles.researchSourceItem}>
+                        <View style={styles.researchSourceIcon}>
+                          <MaterialIcons name={source.type === 'year' ? 'calendar-today' : source.type === 'price' ? 'attach-money' : 'public'} size={12} color="#4da6ff" />
+                        </View>
+                        <Text style={styles.researchSourceName} numberOfLines={1}>{source.title}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {researchData.lastResearched && (
+                    <Text style={styles.researchTimestamp}>
+                      Last researched: {new Date(researchData.lastResearched).toLocaleDateString('en-IN')}
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* Actions */}
+              <View style={styles.resultActions}>
+                <TouchableOpacity style={styles.garageButton} onPress={addToGarage}>
+                  <MaterialCommunityIcons name="car" size={20} color="#fff" />
+                  <Text style={styles.garageButtonText}>Add to Garage</Text>
                 </TouchableOpacity>
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity style={styles.addImageButton} onPress={() => addImage(true)}>
-              <Text style={styles.addImageIcon}>📸</Text>
-              <Text style={styles.addImageText}>Camera</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.addImageButton} onPress={() => addImage(false)}>
-              <Text style={styles.addImageIcon}>🖼️</Text>
-              <Text style={styles.addImageText}>Gallery</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-
-        {/* Basic Info */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📋 Basic Info</Text>
-
-          <Text style={styles.label}>Name *</Text>
-          <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="e.g., 1967 Custom Camaro" placeholderTextColor="#555" />
-
-          <Text style={styles.label}>Year</Text>
-          <TextInput style={styles.input} value={year} onChangeText={setYear} placeholder="e.g., 2023" placeholderTextColor="#555" keyboardType="numeric" />
-
-          <Text style={styles.label}>Model / Casting</Text>
-          <TextInput style={styles.input} value={model} onChangeText={setModel} placeholder="e.g., Custom Camaro" placeholderTextColor="#555" />
-
-          <Text style={styles.label}>Series</Text>
-          <TextInput style={styles.input} value={series} onChangeText={setSeries} placeholder="e.g., HW primaries, Fast & Furious" placeholderTextColor="#555" />
-
-          <Text style={styles.label}>Color</Text>
-          <TextInput style={styles.input} value={color} onChangeText={setColor} placeholder="e.g., Blue" placeholderTextColor="#555" />
-
-          <Text style={styles.label}>Scale</Text>
-          <TextInput style={styles.input} value={scale} onChangeText={setScale} placeholder="1:64" placeholderTextColor="#555" />
-
-          <Text style={styles.label}>Manufacturer</Text>
-          <TextInput style={styles.input} value={manufacturer} onChangeText={setManufacturer} placeholder="Mattel" placeholderTextColor="#555" />
-
-          <Text style={styles.label}>Barcode / UPC</Text>
-          <TextInput style={styles.input} value={barcode} onChangeText={setBarcode} placeholder="Optional" placeholderTextColor="#555" keyboardType="numeric" />
-        </View>
-
-        {/* Details */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🏷️ Details</Text>
-
-          <Text style={styles.label}>Rarity</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-            {RARITIES.map((r) => (
-              <TouchableOpacity
-                key={r}
-                style={[styles.chip, rarity === r && styles.chipActive]}
-                onPress={() => setRarity(r)}
-              >
-                <Text style={[styles.chipText, rarity === r && styles.chipTextActive]}>{r}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          <Text style={styles.label}>Condition</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-            {CONDITIONS.map((c) => (
-              <TouchableOpacity
-                key={c}
-                style={[styles.chip, condition === c && styles.chipActive]}
-                onPress={() => setCondition(c)}
-              >
-                <Text style={[styles.chipText, condition === c && styles.chipTextActive]}>{c}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          <Text style={styles.label}>Tampos / Decoration</Text>
-          <TextInput style={styles.input} value={tampos} onChangeText={setTampos} placeholder="Side decoration details" placeholderTextColor="#555" />
-
-          <Text style={styles.label}>Wheel Type</Text>
-          <TextInput style={styles.input} value={wheelType} onChangeText={setWheelType} placeholder="e.g., 10SP, MC5, OH5" placeholderTextColor="#555" />
-
-          <Text style={styles.label}>Base Color</Text>
-          <TextInput style={styles.input} value={baseColor} onChangeText={setBaseColor} placeholder="e.g., unpainted metal, black" placeholderTextColor="#555" />
-        </View>
-
-        {/* Pricing */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>💰 Pricing</Text>
-
-          <Text style={styles.label}>Buy Price ($)</Text>
-          <TextInput style={styles.input} value={buyPrice} onChangeText={setBuyPrice} placeholder="0.00" placeholderTextColor="#555" keyboardType="decimal-pad" />
-
-          <Text style={styles.label}>Expected Market Value ($)</Text>
-          <TextInput style={styles.input} value={expectedPrice} onChangeText={setExpectedPrice} placeholder="0.00" placeholderTextColor="#555" keyboardType="decimal-pad" />
-        </View>
-
-        {/* Notes */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📝 Notes</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            value={remarks}
-            onChangeText={setRemarks}
-            placeholder="Additional notes, purchase location, etc."
-            placeholderTextColor="#555"
-            multiline
-            numberOfLines={3}
-          />
-        </View>
-
-        {/* Collection toggle */}
-        <View style={styles.toggleRow}>
-          <Text style={styles.toggleLabel}>
-            {inCollection ? '🏎️ Add to Garage (I own this)' : '⭐ Add to Wishlist (I want this)'}
-          </Text>
-          <Switch
-            value={inCollection}
-            onValueChange={setInCollection}
-            trackColor={{ false: '#333', true: '#1b5e20' }}
-            thumbColor={inCollection ? '#4caf50' : '#888'}
-          />
-        </View>
-
-        {/* Save button */}
-        <TouchableOpacity
-          style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          <Text style={styles.saveButtonText}>
-            {saving ? 'Saving...' : inCollection ? '🏎️ Save to Garage' : '⭐ Save to Wishlist'}
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+                <TouchableOpacity style={styles.wishlistButton} onPress={addToWishlist}>
+                  <MaterialIcons name="star" size={20} color="#fff" />
+                  <Text style={styles.wishlistButtonText}>Add to Wishlist</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.resetButton} onPress={reset}>
+                  <MaterialIcons name="camera-alt" size={18} color="#aaa" />
+                  <Text style={styles.resetButtonText}>Scan Another</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : null}
+        </>
+      )}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f0f23' },
-  scroll: { padding: 16, paddingTop: 55, paddingBottom: 100 },
+  scroll: { padding: 16, paddingTop: 50, paddingBottom: 100 },
   header: { marginBottom: 16 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   headerTitle: { fontSize: 26, fontWeight: '800', color: '#fff' },
   headerSub: { fontSize: 13, color: '#888', marginTop: 2 },
-  section: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#2a2a4a',
+  actionRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  actionCard: {
+    flex: 1, backgroundColor: '#1a1a2e', borderRadius: 14, padding: 20,
+    alignItems: 'center', borderWidth: 1, borderColor: '#2a2a4a',
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 12,
+  iconCircle: {
+    width: 56, height: 56, borderRadius: 28,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 12,
   },
-  label: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#aaa',
-    marginBottom: 4,
-    marginTop: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  actionLabel: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  actionDesc: { fontSize: 12, color: '#666', marginTop: 4 },
+  infoCard: {
+    flexDirection: 'row', gap: 10, backgroundColor: 'rgba(77, 166, 255, 0.1)',
+    borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1,
+    borderColor: 'rgba(77, 166, 255, 0.3)',
   },
-  input: {
-    backgroundColor: '#0f0f23',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#333',
-    padding: 12,
-    color: '#fff',
-    fontSize: 14,
+  infoText: { flex: 1, fontSize: 13, color: '#4da6ff', lineHeight: 18 },
+  miniPreview: {
+    width: '100%', height: 140, borderRadius: 14,
+    backgroundColor: '#1a1a2e', marginBottom: 12, borderWidth: 1, borderColor: '#2a2a4a',
   },
-  textArea: {
-    minHeight: 80,
-    textAlignVertical: 'top',
+  statusCard: {
+    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 24,
+    alignItems: 'center', borderWidth: 1, borderColor: '#2a2a4a',
   },
-  imageRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
-  thumbImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 10,
+  loadingContainer: {
+    position: 'relative', width: 80, height: 80,
+    justifyContent: 'center', alignItems: 'center',
   },
-  removeImageBtn: {
-    position: 'absolute',
-    top: -6,
-    right: -6,
-    backgroundColor: '#e63946',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+  loadingCarIcon: { position: 'absolute' },
+  statusText: { fontSize: 18, fontWeight: '700', color: '#fff', marginTop: 16 },
+  statusDesc: { fontSize: 13, color: '#888', marginTop: 6, textAlign: 'center' },
+  errorCard: {
+    backgroundColor: '#2a1a1a', borderRadius: 14, padding: 24,
+    alignItems: 'center', borderWidth: 1, borderColor: '#4a2222',
   },
-  removeImageBtnText: { color: '#fff', fontSize: 10, fontWeight: '700' },
-  addImageButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 10,
-    backgroundColor: '#222',
-    borderWidth: 1,
-    borderColor: '#444',
-    borderStyle: 'dashed',
-    justifyContent: 'center',
-    alignItems: 'center',
+  errorText: { fontSize: 14, color: '#ff6b6b', marginTop: 8, textAlign: 'center', lineHeight: 20 },
+  retryButton: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#e63946', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, marginTop: 16,
   },
-  addImageIcon: { fontSize: 24 },
-  addImageText: { fontSize: 10, color: '#888', marginTop: 2 },
-  chipRow: { flexDirection: 'row', gap: 6, marginTop: 4 },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#222',
-    borderWidth: 1,
-    borderColor: '#333',
+  retryButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  // AI Section
+  aiSection: {
+    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
+    marginBottom: 12, borderWidth: 1.5, borderColor: '#4da6ff',
   },
-  chipActive: {
-    backgroundColor: '#3d1c00',
-    borderColor: '#e63946',
+  aiHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  aiTitle: { fontSize: 16, fontWeight: '800', color: '#4da6ff', flex: 1 },
+  confidenceBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  confHigh: { backgroundColor: 'rgba(76, 175, 80, 0.2)' },
+  confMed: { backgroundColor: 'rgba(255, 152, 0, 0.2)' },
+  confLow: { backgroundColor: 'rgba(244, 67, 54, 0.2)' },
+  confText: { fontSize: 10, color: '#aaa', fontWeight: '600', textTransform: 'capitalize' },
+  carName: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 4 },
+  carSub: { fontSize: 15, color: '#aaa', marginBottom: 10 },
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
+  tag: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: '#222',
   },
-  chipText: { fontSize: 12, color: '#888' },
-  chipTextActive: { color: '#fff', fontWeight: '600' },
-  toggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#1a1a2e',
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#2a2a4a',
+  tagRarity: { backgroundColor: 'rgba(255, 215, 0, 0.15)' },
+  tagCondition: { backgroundColor: 'rgba(76, 175, 80, 0.15)' },
+  tagSeries: { backgroundColor: 'rgba(156, 39, 176, 0.15)' },
+  tagVariant: { backgroundColor: 'rgba(77, 166, 255, 0.15)' },
+  tagText: { fontSize: 11, color: '#ccc', fontWeight: '600' },
+  conditionNotes: { fontSize: 11, color: '#888', marginBottom: 10, fontStyle: 'italic', lineHeight: 16 },
+  aiDetails: {},
+  aiRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: '#222',
   },
-  toggleLabel: { fontSize: 14, fontWeight: '600', color: '#fff', flex: 1 },
-  saveButton: {
-    backgroundColor: '#e63946',
-    borderRadius: 14,
-    padding: 18,
-    alignItems: 'center',
-    marginBottom: 20,
+  aiLabel: { fontSize: 13, color: '#888', width: 70 },
+  aiValue: { fontSize: 13, color: '#fff', fontWeight: '600', flex: 1, textAlign: 'right' },
+  // History card
+  historyCard: {
+    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
+    marginBottom: 12, borderWidth: 1, borderColor: '#FFD700',
   },
-  saveButtonDisabled: { opacity: 0.4 },
-  saveButtonText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  historyHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  historyTitle: { fontSize: 15, fontWeight: '800', color: '#FFD700' },
+  historyText: { fontSize: 13, color: '#ccc', lineHeight: 20 },
+  // Price range card
+  priceRangeCard: {
+    backgroundColor: '#0a2a1a', borderRadius: 14, padding: 16,
+    marginBottom: 12, borderWidth: 1, borderColor: '#1b5e20',
+  },
+  priceRangeHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  priceRangeTitle: { fontSize: 14, fontWeight: '700', color: '#4caf50' },
+  priceRangeRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
+  },
+  priceRangeBox: { alignItems: 'center', flex: 1 },
+  priceRangeLabel: { fontSize: 11, color: '#888', textTransform: 'uppercase' },
+  priceRangeValue: { fontSize: 20, fontWeight: '800', color: '#fff', marginTop: 4 },
+  priceSourcesList: {
+    marginTop: 12, paddingTop: 12, borderTopWidth: 0.5, borderTopColor: '#1b5e20',
+  },
+  priceSourcesHeader: {
+    fontSize: 11, fontWeight: '700', color: '#888', textTransform: 'uppercase',
+    letterSpacing: 0.5, marginBottom: 8,
+  },
+  priceSourceItem: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: 'rgba(27, 94, 32, 0.3)',
+  },
+  priceSourceLeft: { flex: 1, marginRight: 12 },
+  priceSourceName: { fontSize: 12, color: '#ccc', fontWeight: '600' },
+  priceSourceRef: { fontSize: 10, color: '#666', marginTop: 1 },
+  priceSourcePrice: { fontSize: 13, color: '#4caf50', fontWeight: '800' },
+  infoHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  infoTitle: { fontSize: 14, fontWeight: '700', color: '#4da6ff' },
+  resultActions: { gap: 10, marginTop: 4 },
+  garageButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#1b5e20', borderRadius: 12, padding: 16,
+  },
+  garageButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  wishlistButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#333', borderRadius: 12, padding: 16,
+  },
+  wishlistButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  resetButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: '#1a1a2e', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#2a2a4a',
+  },
+  resetButtonText: { color: '#aaa', fontSize: 14, fontWeight: '600' },
+  // Research section
+  researchCard: {
+    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
+    marginBottom: 12, borderWidth: 1, borderColor: '#4da6ff',
+  },
+  researchHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  researchTitle: { fontSize: 15, fontWeight: '800', color: '#4da6ff', flex: 1 },
+  researchBadge: {
+    backgroundColor: 'rgba(77, 166, 255, 0.2)', paddingHorizontal: 8,
+    paddingVertical: 3, borderRadius: 6,
+  },
+  researchBadgeText: { fontSize: 10, color: '#4da6ff', fontWeight: '600' },
+  researchSection: {
+    backgroundColor: '#0f0f23', borderRadius: 10, padding: 12,
+    marginBottom: 10,
+  },
+  researchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  researchLabel: { fontSize: 12, color: '#888', flex: 1 },
+  researchValue: { fontSize: 14, color: '#fff', fontWeight: '700' },
+  researchStatus: { fontSize: 11, color: '#4caf50', marginTop: 4, fontStyle: 'italic' },
+  researchSourcesList: { marginTop: 10 },
+  researchSourceItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 4,
+  },
+  researchSourceIcon: {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(77, 166, 255, 0.15)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  researchSourceName: { fontSize: 11, color: '#aaa', flex: 1 },
+  researchTimestamp: {
+    fontSize: 10, color: '#555', marginTop: 8,
+    textAlign: 'right', fontStyle: 'italic',
+  },
 });

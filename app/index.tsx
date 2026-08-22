@@ -1,34 +1,18 @@
-import { useEffect } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { getSettings } from '../src/services/storage';
+import LoadingScreen from '../src/components/LoadingScreen';
 
 export default function Index() {
   const router = useRouter();
 
-  useEffect(() => {
-    (async () => {
-      const settings = await getSettings();
-      if (!settings) {
-        router.replace('/setup');
-      } else {
-        router.replace('/(tabs)/garage');
-      }
-    })();
-  }, []);
-
   return (
-    <View style={styles.loading}>
-      <ActivityIndicator size="large" color="#e63946" />
+    <View style={{ flex: 1 }}>
+      <LoadingScreen
+        duration={3500}
+        onReady={() => {
+          router.replace('/(tabs)/garage');
+        }}
+      />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  loading: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#0f0f23',
-  },
-});

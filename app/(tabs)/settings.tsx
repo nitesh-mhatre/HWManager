@@ -11,6 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { getSettings, saveSettings, getAllCars } from '../../src/services/storage';
 import { fetchModels } from '../../src/services/nvidia';
 import { NvidiaSettings, HotWheelCar } from '../../src/types';
@@ -38,7 +39,6 @@ export default function SettingsScreen() {
       setApiKey(s.apiKey);
       setBaseUrl(s.baseUrl);
       setSelectedModel(s.model);
-      // Fetch models in background
       setLoadingModels(true);
       try {
         const m = await fetchModels(s.apiKey, s.baseUrl);
@@ -52,7 +52,7 @@ export default function SettingsScreen() {
     const cars = await getAllCars();
     const garage = cars.filter((c) => c.inCollection);
     const wishlist = cars.filter((c) => !c.inCollection);
-    const totalValue = garage.reduce((sum, c) => sum + (c.expectedPrice || 0), 0);
+    const totalValue = garage.reduce((sum, c) => sum + (c.priceINR || c.expectedPrice || 0), 0);
     setStats({
       total: cars.length,
       garage: garage.length,
@@ -121,30 +121,39 @@ export default function SettingsScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scroll}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>⚙️ Settings</Text>
+        <View style={styles.headerRow}>
+          <MaterialIcons name="settings" size={28} color="#e63946" />
+          <Text style={styles.headerTitle}>Settings</Text>
+        </View>
       </View>
 
       {/* Stats */}
       <View style={styles.statsCard}>
         <View style={styles.statItem}>
+          <MaterialCommunityIcons name="car" size={20} color="#e63946" />
           <Text style={styles.statValue}>{stats.garage}</Text>
           <Text style={styles.statLabel}>Garage</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
+          <MaterialIcons name="star" size={20} color="#FFD700" />
           <Text style={styles.statValue}>{stats.wishlist}</Text>
           <Text style={styles.statLabel}>Wishlist</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: '#4caf50' }]}>${stats.totalValue.toFixed(0)}</Text>
+          <MaterialIcons name="trending-up" size={20} color="#4caf50" />
+          <Text style={[styles.statValue, { color: '#4caf50' }]}>₹{stats.totalValue.toLocaleString('en-IN')}</Text>
           <Text style={styles.statLabel}>Value</Text>
         </View>
       </View>
 
       {/* API Configuration */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔑 NVIDIA API Configuration</Text>
+        <View style={styles.sectionHeader}>
+          <MaterialIcons name="vpn-key" size={18} color="#4da6ff" />
+          <Text style={styles.sectionTitle}>NVIDIA API Configuration</Text>
+        </View>
 
         <Text style={styles.label}>API Base URL</Text>
         <TextInput
@@ -177,7 +186,10 @@ export default function SettingsScreen() {
           {loadingModels ? (
             <ActivityIndicator color="#fff" size="small" />
           ) : (
-            <Text style={styles.secondaryButtonText}>🔄 Refresh Models</Text>
+            <View style={styles.buttonContent}>
+              <MaterialIcons name="refresh" size={16} color="#fff" />
+              <Text style={styles.secondaryButtonText}>Refresh Models</Text>
+            </View>
           )}
         </TouchableOpacity>
 
@@ -214,40 +226,49 @@ export default function SettingsScreen() {
           {saving ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.saveButtonText}>Save Settings</Text>
+            <View style={styles.buttonContent}>
+              <MaterialIcons name="save" size={18} color="#fff" />
+              <Text style={styles.saveButtonText}>Save Settings</Text>
+            </View>
           )}
         </TouchableOpacity>
       </View>
 
       {/* Data Management */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>💾 Data Management</Text>
+        <View style={styles.sectionHeader}>
+          <MaterialIcons name="storage" size={18} color="#4da6ff" />
+          <Text style={styles.sectionTitle}>Data Management</Text>
+        </View>
 
         <TouchableOpacity style={styles.menuItem} onPress={handleExportData}>
-          <Text style={styles.menuIcon}>📤</Text>
+          <MaterialIcons name="file-upload" size={20} color="#888" />
           <View style={styles.menuInfo}>
             <Text style={styles.menuLabel}>Export Collection</Text>
             <Text style={styles.menuDesc}>{stats.total} cars total</Text>
           </View>
-          <Text style={styles.menuArrow}>›</Text>
+          <MaterialIcons name="chevron-right" size={20} color="#555" />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.menuItem} onPress={handleClearAllData}>
-          <Text style={styles.menuIcon}>🗑️</Text>
+          <MaterialIcons name="delete-forever" size={20} color="#e63946" />
           <View style={styles.menuInfo}>
             <Text style={[styles.menuLabel, { color: '#e63946' }]}>Clear All Data</Text>
             <Text style={styles.menuDesc}>Delete all cars and settings</Text>
           </View>
-          <Text style={styles.menuArrow}>›</Text>
+          <MaterialIcons name="chevron-right" size={20} color="#555" />
         </TouchableOpacity>
       </View>
 
       {/* About */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>ℹ️ About</Text>
+        <View style={styles.sectionHeader}>
+          <MaterialIcons name="info" size={18} color="#4da6ff" />
+          <Text style={styles.sectionTitle}>About</Text>
+        </View>
         <Text style={styles.aboutText}>
           Hot Wheels Recorder v1.0{'\n\n'}
-          Track your Hot Wheels collection, scan cars with AI, and monitor market values.{'\n\n'}
+          Track your Hot Wheels collection, scan cars with AI, and monitor market values in INR.{'\n\n'}
           Powered by NVIDIA free-tier AI APIs for car identification and value estimation.
         </Text>
       </View>
@@ -257,8 +278,13 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f0f23' },
-  scroll: { padding: 16, paddingTop: 55, paddingBottom: 100 },
+  scroll: { padding: 16, paddingTop: 50, paddingBottom: 100 },
   header: { marginBottom: 16 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   headerTitle: { fontSize: 26, fontWeight: '800', color: '#fff' },
   statsCard: {
     flexDirection: 'row',
@@ -270,9 +296,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2a2a4a',
   },
-  statItem: { alignItems: 'center', flex: 1 },
-  statValue: { fontSize: 22, fontWeight: '800', color: '#fff' },
-  statLabel: { fontSize: 11, color: '#666', marginTop: 2, textTransform: 'uppercase' },
+  statItem: { alignItems: 'center', flex: 1, gap: 4 },
+  statValue: { fontSize: 18, fontWeight: '800', color: '#fff' },
+  statLabel: { fontSize: 10, color: '#666', textTransform: 'uppercase' },
   statDivider: { width: 1, backgroundColor: '#333', marginVertical: 4 },
   section: {
     backgroundColor: '#1a1a2e',
@@ -282,11 +308,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2a2a4a',
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: '#fff',
-    marginBottom: 12,
   },
   label: {
     fontSize: 12,
@@ -313,6 +344,11 @@ const styles = StyleSheet.create({
     padding: 12,
     alignItems: 'center',
     marginTop: 10,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   secondaryButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   modelList: { maxHeight: 200, marginTop: 4 },
@@ -352,14 +388,13 @@ const styles = StyleSheet.create({
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
     paddingVertical: 12,
     borderBottomWidth: 0.5,
     borderBottomColor: '#222',
   },
-  menuIcon: { fontSize: 20, marginRight: 12 },
   menuInfo: { flex: 1 },
   menuLabel: { fontSize: 14, fontWeight: '600', color: '#fff' },
   menuDesc: { fontSize: 12, color: '#666', marginTop: 1 },
-  menuArrow: { fontSize: 20, color: '#555' },
   aboutText: { fontSize: 13, color: '#888', lineHeight: 20 },
 });
