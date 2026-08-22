@@ -1,16 +1,16 @@
 {
   "expo": {
-    "name": "Hot Wheels Recorder",
+    "name": "HW Manager",
     "slug": "hotwheels-recorder",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "scheme": "hotwheels-recorder",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.hotwheels.recorder",
+      "bundleIdentifier": "com.bites.hwmanager",
       "infoPlist": {
         "NSCameraUsageDescription": "Hot Wheels Recorder needs camera access to scan your Hot Wheels cars.",
         "NSPhotoLibraryUsageDescription": "Hot Wheels Recorder needs photo access to import car images."
@@ -21,7 +21,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a1a2e"
       },
-      "package": "com.hotwheels.recorder",
+      "package": "com.bites.hwmanager",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
@@ -38,7 +38,8 @@
       [
         "react-native-google-mobile-ads",
         {
-          "android_app_id": "ca-app-pub-2889632845666311~7452613987"
+          "androidAppId": "ca-app-pub-2889632845666311~7452613987",
+          "iosAppId": "ca-app-pub-3940256099942544~1458671072"
         }
       ],
       [
