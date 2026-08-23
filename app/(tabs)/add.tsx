@@ -108,6 +108,13 @@ export default function AddScreen() {
       soldDate: '',
       soldPlatform: '',
       soldNotes: '',
+      storageLocation: '',
+      allocation: 'personal',
+      cardCondition: '',
+      packaging: '',
+      caseCode: '',
+      toyNumber: '',
+      variations: [],
     };
   };
 

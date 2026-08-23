@@ -25,7 +25,19 @@ export async function getAllCars(): Promise<HotWheelCar[]> {
     ...c,
     quantity: c.quantity ?? 1,
     purchaseHistory: c.purchaseHistory ?? [],
-    saleHistory: c.saleHistory ?? [],
+    storageLocation: c.storageLocation ?? '',
+    allocation: c.allocation ?? 'personal',
+    cardCondition: c.cardCondition ?? '',
+    packaging: c.packaging ?? '',
+    caseCode: c.caseCode ?? '',
+    toyNumber: c.toyNumber ?? '',
+    variations: c.variations ?? [],
+    // Migrate old SaleEntry items missing new fields
+    saleHistory: (c.saleHistory ?? []).map((s: any) => ({
+      ...s,
+      platformFees: s.platformFees ?? 0,
+      shippingCost: s.shippingCost ?? 0,
+    })),
   }));
 }
 
@@ -65,10 +77,6 @@ export async function getWishlist(): Promise<HotWheelCar[]> {
 
 // ─── Duplicate Detection ────────────────────────────────────
 
-/**
- * Find duplicate cars by matching on name + model + year + color.
- * Returns existing cars that match the scanned car's identity.
- */
 export async function findDuplicateCars(
   name: string,
   model: string,
@@ -81,18 +89,15 @@ export async function findDuplicateCars(
     const nameMatch = norm(c.name) === norm(name);
     const modelMatch = norm(c.model) === norm(model);
     const yearMatch = norm(c.year) === norm(year);
-    // Color match is fuzzy — same first word matches
     const cColor = norm(c.color);
     const nColor = norm(color);
     const colorMatch = cColor === nColor || (cColor.length > 0 && nColor.length > 0 && cColor.split(' ')[0] === nColor.split(' ')[0]);
-    // At least name+model+year must match (color is bonus)
     return nameMatch && modelMatch && yearMatch && colorMatch;
   });
 }
 
 // ─── Purchase History Management ────────────────────────────
 
-/** Add a new purchase entry to a car and recalculate quantity */
 export async function addPurchaseToCar(
   carId: string,
   entry: PurchaseEntry,
@@ -103,11 +108,9 @@ export async function addPurchaseToCar(
 
   const car = cars[idx];
   car.purchaseHistory = [...(car.purchaseHistory || []), entry];
-  // Recalculate quantity: total purchased minus total sold
   const totalPurchased = car.purchaseHistory.reduce((s, p) => s + (p.quantity || 1), 0);
   const totalSold = car.saleHistory.reduce((s, sl) => s + (sl.quantity || 1), 0);
   car.quantity = Math.max(0, totalPurchased - totalSold);
-  // Update legacy buyPrice to weighted average
   if (car.purchaseHistory.length > 0) {
     const totalCost = car.purchaseHistory.reduce((s, p) => s + p.buyPrice * (p.quantity || 1), 0);
     const totalUnits = car.purchaseHistory.reduce((s, p) => s + (p.quantity || 1), 0);
@@ -118,7 +121,6 @@ export async function addPurchaseToCar(
   return car;
 }
 
-/** Add a new sale entry to a car and recalculate quantity */
 export async function addSaleToCar(
   carId: string,
   entry: SaleEntry,
@@ -129,11 +131,9 @@ export async function addSaleToCar(
 
   const car = cars[idx];
   car.saleHistory = [...(car.saleHistory || []), entry];
-  // Recalculate quantity
   const totalPurchased = car.purchaseHistory.reduce((s, p) => s + (p.quantity || 1), 0);
   const totalSold = car.saleHistory.reduce((s, sl) => s + (sl.quantity || 1), 0);
   car.quantity = Math.max(0, totalPurchased - totalSold);
-  // Mark as fully sold if quantity is 0
   if (car.quantity === 0 && car.saleHistory.length > 0) {
     car.isSold = true;
     const latestSale = car.saleHistory[car.saleHistory.length - 1];
@@ -149,15 +149,16 @@ export async function addSaleToCar(
   return car;
 }
 
-/** Compute derived inventory stats for a car */
 export function computeCarStats(car: HotWheelCar) {
   const totalPurchased = car.purchaseHistory.reduce((s, p) => s + (p.quantity || 1), 0);
   const totalSold = car.saleHistory.reduce((s, sl) => s + (sl.quantity || 1), 0);
   const totalInvested = car.purchaseHistory.reduce((s, p) => s + p.buyPrice * (p.quantity || 1), 0);
   const totalRevenue = car.saleHistory.reduce((s, sl) => s + sl.soldPrice * (sl.quantity || 1), 0);
+  const totalFees = car.saleHistory.reduce((s, sl) => s + (sl.platformFees || 0) + (sl.shippingCost || 0), 0);
+  const netRevenue = totalRevenue - totalFees;
   const avgBuyPrice = totalPurchased > 0 ? Math.round(totalInvested / totalPurchased) : 0;
   const avgSellPrice = totalSold > 0 ? Math.round(totalRevenue / totalSold) : 0;
-  const profit = totalRevenue - totalInvested;
+  const profit = netRevenue - totalInvested;
   const roi = totalInvested > 0 ? ((profit / totalInvested) * 100) : 0;
   const inStock = Math.max(0, totalPurchased - totalSold);
 
@@ -166,10 +167,73 @@ export function computeCarStats(car: HotWheelCar) {
     totalSold,
     totalInvested,
     totalRevenue,
+    totalFees,
+    netRevenue,
     avgBuyPrice,
     avgSellPrice,
     profit,
     roi,
     inStock,
   };
+}
+
+// ─── CSV/JSON Export ────────────────────────────────────────
+
+export function generateCSV(cars: HotWheelCar[]): string {
+  const headers = [
+    'Name', 'Year', 'Series', 'Color', 'Model', 'Rarity',
+    'Condition', 'Card Condition', 'Packaging', 'Case Code', 'Toy #',
+    'Buy Price', 'Market Value', 'Qty', 'Allocation', 'Storage Location',
+    'Variations', 'Date Added',
+  ];
+  const rows = cars.map((c) => [
+    c.name, c.year, c.series, c.color, c.model, c.rarity,
+    c.condition, c.cardCondition, c.packaging, c.caseCode, c.toyNumber,
+    c.buyPrice, c.priceINR || c.expectedPrice, c.quantity, c.allocation, c.storageLocation,
+    (c.variations || []).join('; '), c.dateAdded,
+  ]);
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  return csvContent;
+}
+
+export function generateJSON(cars: HotWheelCar[]): string {
+  return JSON.stringify(cars, null, 2);
+}
+
+// ─── Peg-Hunting Helpers ────────────────────────────────────
+
+/** Get all unique case codes from the collection */
+export async function getCaseCodes(): Promise<string[]> {
+  const cars = await getAllCars();
+  const codes = new Set(cars.map((c) => c.caseCode).filter(Boolean));
+  return Array.from(codes).sort();
+}
+
+/** Build a peg-hunting checklist: for each case code, list cars and their status */
+export interface PegHuntItem {
+  name: string;
+  model: string;
+  year: string;
+  color: string;
+  toyNumber: string;
+  status: 'have' | 'want' | 'need';  // have = in garage, want = on wishlist, need = not found
+  allocation?: string;
+  images?: string[];
+}
+
+export async function buildPegHuntChecklist(caseCode: string): Promise<PegHuntItem[]> {
+  const cars = await getAllCars();
+  const inCase = cars.filter((c) => c.caseCode === caseCode);
+  return inCase.map((c) => ({
+    name: c.name,
+    model: c.model,
+    year: c.year,
+    color: c.color,
+    toyNumber: c.toyNumber,
+    status: c.inCollection ? 'have' : 'want',
+    allocation: c.allocation,
+    images: c.images,
+  }));
 }

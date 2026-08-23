@@ -37,7 +37,12 @@ export interface SaleEntry {
   platform: string;       // eBay, Mercari, FB Marketplace, etc.
   buyerInfo: string;
   notes: string;
+  platformFees: number;   // platform commission / listing fees
+  shippingCost: number;   // shipping cost paid
 }
+
+/** Allocation bucket — where this unit lives in the collection */
+export type AllocationType = 'personal' | 'trade' | 'forSale';
 
 export interface HotWheelCar {
   id: string;
@@ -48,7 +53,7 @@ export interface HotWheelCar {
   model: string;       // casting name
   scale: string;
   rarity: string;
-  condition: string;   // mint, loose, damaged
+  condition: string;   // legacy: mint, loose, damaged
   // Legacy single-price fields (kept for backward compatibility)
   buyPrice: number;
   expectedPrice: number;
@@ -77,6 +82,18 @@ export interface HotWheelCar {
   soldDate: string;     // ISO date string
   soldPlatform: string; // eBay, Mercari, FB Marketplace, etc.
   soldNotes: string;
+  // === NEW: Feature #1 Storage Location ===
+  storageLocation: string;  // e.g. "Shelf 1 > Clear Tub #4 > Row 2"
+  // === NEW: Feature #2 Allocation Tags ===
+  allocation: AllocationType; // 'personal' | 'trade' | 'forSale'
+  // === NEW: Feature #3 Card Condition Detail ===
+  cardCondition: string;     // 'mint' | 'softCorner' | 'crackedBubble' | 'crease' | 'protector' | 'na'
+  packaging: string;         // 'longCard' | 'shortCard' | 'protector' | 'loose' | 'damaged' | ''
+  // === NEW: Feature #4 Case Code & Toy Number ===
+  caseCode: string;          // A–Q release case letter
+  toyNumber: string;         // e.g. "124/250" collector number
+  // === NEW: Feature #5 Variation & Error Log ===
+  variations: string[];      // e.g. ["Short Card", "Wheel Swap", "Color Shift", "Tampo Error"]
 }
 
 export interface ScanResult {

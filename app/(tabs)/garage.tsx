@@ -13,8 +13,9 @@ import {
 import { useRouter, useFocusEffect } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { getGarage, deleteCar, updateCar } from '../../src/services/storage';
-import { HotWheelCar } from '../../src/types';
+import { HotWheelCar, AllocationType } from '../../src/types';
 import FilterDropdown from '../../src/components/FilterDropdown';
+import PegHuntChecklist from '../../src/components/PegHuntChecklist';
 
 type ViewMode = 'list' | 'grid' | 'compact';
 type SortBy = 'newest' | 'name' | 'price-high' | 'price-low' | 'year';
@@ -33,6 +34,9 @@ export default function GarageScreen() {
   const [filterColor, setFilterColor] = useState('');
   const [filterSeries, setFilterSeries] = useState('');
   const [filterRarity, setFilterRarity] = useState('');
+  const [filterCaseCode, setFilterCaseCode] = useState('');
+  const [filterAllocation, setFilterAllocation] = useState('');
+  const [showPegHunt, setShowPegHunt] = useState(false);
 
   const loadCars = async () => {
     const garage = await getGarage();
@@ -72,6 +76,17 @@ export default function GarageScreen() {
     return Array.from(r).sort().map((v) => ({ label: v, value: v }));
   }, [cars]);
 
+  const allCaseCodes = useMemo(() => {
+    const r = new Set(cars.map((c) => c.caseCode).filter(Boolean));
+    return Array.from(r).sort().map((v) => ({ label: v, value: v }));
+  }, [cars]);
+
+  const allAllocations = useMemo(() => {
+    const allocs = [{ label: 'Personal', value: 'personal' as AllocationType }, { label: 'Trade Pile', value: 'trade' as AllocationType }, { label: 'For Sale', value: 'forSale' as AllocationType }];
+    const used = new Set(cars.map((c) => c.allocation).filter(Boolean));
+    return allocs.filter((a) => used.has(a.value));
+  }, [cars]);
+
   // Filter + sort
   const filtered = useMemo(() => {
     let list = cars.filter((c) => {
@@ -85,7 +100,9 @@ export default function GarageScreen() {
       const matchColor = !filterColor || c.color === filterColor;
       const matchSeries = !filterSeries || c.series === filterSeries;
       const matchRarity = !filterRarity || c.rarity === filterRarity;
-      return matchSearch && matchYear && matchColor && matchSeries && matchRarity;
+      const matchCaseCode = !filterCaseCode || c.caseCode === filterCaseCode;
+      const matchAllocation = !filterAllocation || c.allocation === filterAllocation;
+      return matchSearch && matchYear && matchColor && matchSeries && matchRarity && matchCaseCode && matchAllocation;
     });
 
     switch (sortBy) {
@@ -107,7 +124,7 @@ export default function GarageScreen() {
         break;
     }
     return list;
-  }, [cars, search, filterYear, filterColor, filterSeries, filterRarity, sortBy]);
+  }, [cars, search, filterYear, filterColor, filterSeries, filterRarity, filterCaseCode, filterAllocation, sortBy]);
 
   const totalValue = filtered.reduce((sum, c) => sum + (c.priceINR || c.expectedPrice || 0), 0);
   const totalSpent = filtered.reduce((sum, c) => sum + (c.buyPrice || 0), 0);
@@ -117,10 +134,12 @@ export default function GarageScreen() {
     setFilterColor('');
     setFilterSeries('');
     setFilterRarity('');
+    setFilterCaseCode('');
+    setFilterAllocation('');
   };
 
-  const hasActiveFilters = filterYear || filterColor || filterSeries || filterRarity;
-  const activeFilterCount = [filterYear, filterColor, filterSeries, filterRarity].filter(Boolean).length;
+  const hasActiveFilters = filterYear || filterColor || filterSeries || filterRarity || filterCaseCode || filterAllocation;
+  const activeFilterCount = [filterYear, filterColor, filterSeries, filterRarity, filterCaseCode, filterAllocation].filter(Boolean).length;
 
   const cycleViewMode = () => {
     const modes: ViewMode[] = ['list', 'grid', 'compact'];
@@ -221,6 +240,14 @@ export default function GarageScreen() {
             <Text style={styles.seriesPillText} numberOfLines={1}>{item.series}</Text>
           </View>
         ) : null}
+        {item.allocation && item.allocation !== 'personal' && (
+          <View style={[styles.seriesPill, { backgroundColor: item.allocation === 'forSale' ? 'rgba(76, 175, 80, 0.12)' : 'rgba(255, 152, 0, 0.12)' }]}>
+            <MaterialIcons name={item.allocation === 'forSale' ? 'sell' : 'swap-horiz'} size={10} color={item.allocation === 'forSale' ? '#4caf50' : '#FF9800'} />
+            <Text style={[styles.seriesPillText, { color: item.allocation === 'forSale' ? '#4caf50' : '#FF9800' }]}>
+              {item.allocation === 'forSale' ? 'For Sale' : 'Trade'}
+            </Text>
+          </View>
+        )}
       </View>
       <View style={styles.cardPrice}>
         <Text style={styles.priceLabel}>Market</Text>
@@ -260,6 +287,14 @@ export default function GarageScreen() {
       <View style={styles.gridInfo}>
         <Text style={styles.gridName} numberOfLines={1}>{item.name}</Text>
         <Text style={styles.gridMeta}>{item.year || '—'} · {item.color || '—'}</Text>
+        {item.allocation && item.allocation !== 'personal' && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+            <MaterialIcons name={item.allocation === 'forSale' ? 'sell' : 'swap-horiz'} size={10} color={item.allocation === 'forSale' ? '#4caf50' : '#FF9800'} />
+            <Text style={{ fontSize: 9, color: item.allocation === 'forSale' ? '#4caf50' : '#FF9800', fontWeight: '600' }}>
+              {item.allocation === 'forSale' ? 'For Sale' : 'Trade'}
+            </Text>
+          </View>
+        )}
         <Text style={styles.gridPrice}>
           ₹{(item.priceINR || item.expectedPrice || 0) > 0
             ? (item.priceINR || item.expectedPrice || 0).toLocaleString('en-IN')
@@ -325,6 +360,9 @@ export default function GarageScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerBtn} onPress={() => setShowSort(!showSort)}>
             <MaterialIcons name="sort" size={20} color={showSort ? '#e63946' : '#888'} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowPegHunt(true)}>
+            <MaterialCommunityIcons name="map-marker-check" size={20} color="#FFD700" />
           </TouchableOpacity>
         </View>
       </View>
@@ -404,6 +442,32 @@ export default function GarageScreen() {
         />
       </View>
 
+      {/* Second filter row: Case Code + Allocation */}
+      {(allCaseCodes.length > 0 || allAllocations.length > 0) && (
+        <View style={styles.filterRow}>
+          {allCaseCodes.length > 0 && (
+            <FilterDropdown
+              label="Case"
+              icon="alpha"
+              options={allCaseCodes}
+              selectedValue={filterCaseCode}
+              onSelect={setFilterCaseCode}
+              accentColor="#42A5F5"
+            />
+          )}
+          {allAllocations.length > 0 && (
+            <FilterDropdown
+              label="Allocation"
+              icon="swap-horiz"
+              options={allAllocations}
+              selectedValue={filterAllocation}
+              onSelect={setFilterAllocation}
+              accentColor="#FF9800"
+            />
+          )}
+        </View>
+      )}
+
       {/* Stats bar */}
       <View style={styles.statsBar}>
         <View style={styles.stat}>
@@ -465,6 +529,13 @@ export default function GarageScreen() {
           </View>
         }
       />
+
+      {/* Peg Hunt Checklist Modal */}
+      {showPegHunt && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0f0f23', zIndex: 100 }}>
+          <PegHuntChecklist onClose={() => setShowPegHunt(false)} />
+        </View>
+      )}
     </View>
   );
 }

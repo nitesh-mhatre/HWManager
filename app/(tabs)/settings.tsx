@@ -260,6 +260,57 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Export */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <MaterialIcons name="file-download" size={18} color="#4caf50" />
+          <Text style={styles.sectionTitle}>Export Collection</Text>
+        </View>
+        <Text style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>Download your collection data for backup or sharing.</Text>
+        <TouchableOpacity style={styles.saveButton} onPress={async () => {
+          try {
+            const { generateCSV, getAllCars } = require('../../src/services/storage');
+            const { Paths, File } = await import('expo-file-system');
+            const Share = (await import('expo-sharing'));
+            const cars = await getAllCars();
+            if (cars.length === 0) {
+              Alert.alert('Empty', 'No cars to export.');
+              return;
+            }
+            const csv = generateCSV(cars);
+            const file = new File(Paths.cache, 'hotwheels-collection.csv');
+            await file.write(csv);
+            await Share.shareAsync(file.uri, { mimeType: 'text/csv', dialogTitle: 'Export Collection CSV' });
+          } catch (e: any) {
+            Alert.alert('Export Failed', e.message);
+          }
+        }}>
+          <MaterialIcons name="table-chart" size={18} color="#fff" />
+          <Text style={styles.saveButtonText}>Export as CSV</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#1565C0', marginTop: 8 }]} onPress={async () => {
+          try {
+            const { generateJSON, getAllCars } = require('../../src/services/storage');
+            const { Paths, File } = await import('expo-file-system');
+            const Share = (await import('expo-sharing'));
+            const cars = await getAllCars();
+            if (cars.length === 0) {
+              Alert.alert('Empty', 'No cars to export.');
+              return;
+            }
+            const json = generateJSON(cars);
+            const file = new File(Paths.cache, 'hotwheels-collection.json');
+            await file.write(json);
+            await Share.shareAsync(file.uri, { mimeType: 'application/json', dialogTitle: 'Export Collection JSON' });
+          } catch (e: any) {
+            Alert.alert('Export Failed', e.message);
+          }
+        }}>
+          <MaterialIcons name="code" size={18} color="#fff" />
+          <Text style={styles.saveButtonText}>Export as JSON</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* About */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>

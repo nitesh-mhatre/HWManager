@@ -61,6 +61,17 @@ export default function CarDetailScreen() {
   const [salePlatform, setSalePlatform] = useState('');
   const [saleBuyerInfo, setSaleBuyerInfo] = useState('');
   const [saleNotes, setSaleNotes] = useState('');
+  const [saleFees, setSaleFees] = useState('');
+  const [saleShipping, setSaleShipping] = useState('');
+
+  // New inventory fields
+  const [storageLocation, setStorageLocation] = useState('');
+  const [allocation, setAllocation] = useState<'personal' | 'trade' | 'forSale'>('personal');
+  const [cardCondition, setCardCondition] = useState('');
+  const [packaging, setPackaging] = useState('');
+  const [caseCode, setCaseCode] = useState('');
+  const [toyNumber, setToyNumber] = useState('');
+  const [variationText, setVariationText] = useState('');
 
   useEffect(() => {
     loadCar();
@@ -82,6 +93,13 @@ export default function CarDetailScreen() {
       setExpectedPrice(found.expectedPrice.toString());
       setRemarks(found.remarks);
       setInCollection(found.inCollection);
+      setStorageLocation(found.storageLocation || '');
+      setAllocation(found.allocation || 'personal');
+      setCardCondition(found.cardCondition || '');
+      setPackaging(found.packaging || '');
+      setCaseCode(found.caseCode || '');
+      setToyNumber(found.toyNumber || '');
+      setVariationText((found.variations || []).join(', '));
       if (found.isSold) {
         setSoldPrice(found.soldPrice?.toString() || '');
         setSoldPlatform(found.soldPlatform || '');
@@ -105,6 +123,13 @@ export default function CarDetailScreen() {
       expectedPrice: parseFloat(expectedPrice) || 0,
       remarks,
       inCollection,
+      storageLocation,
+      allocation,
+      cardCondition,
+      packaging,
+      caseCode,
+      toyNumber,
+      variations: variationText.split(',').map((v) => v.trim()).filter(Boolean),
     };
     await updateCar(updated);
     setCar(updated);
@@ -124,6 +149,8 @@ export default function CarDetailScreen() {
       Alert.alert('Insufficient Stock', `You only have ${car.quantity || 0} units in stock.`);
       return;
     }
+    const fees = parseFloat(saleFees) || 0;
+    const shipping = parseFloat(saleShipping) || 0;
     const entry: SaleEntry = {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
       soldPrice: price,
@@ -132,7 +159,10 @@ export default function CarDetailScreen() {
       platform: salePlatform.trim(),
       buyerInfo: saleBuyerInfo.trim(),
       notes: saleNotes.trim(),
+      platformFees: fees,
+      shippingCost: shipping,
     };
+    const net = price - fees - shipping;
     const updated = await addSaleToCar(car.id, entry);
     if (updated) {
       setCar(updated);
@@ -142,6 +172,8 @@ export default function CarDetailScreen() {
       setSalePlatform('');
       setSaleBuyerInfo('');
       setSaleNotes('');
+      setSaleFees('');
+      setSaleShipping('');
       Alert.alert('Sale Recorded!', `Sold ${qty}x "${car.name}" for ₹${(price * qty).toLocaleString('en-IN')}`);
     }
   };
@@ -425,6 +457,36 @@ export default function CarDetailScreen() {
               <Field label="Buy Price (₹)" value={buyPrice} onChange={setBuyPrice} icon="attach-money" keyboardType="decimal-pad" />
               <Field label="Expected Price (₹)" value={expectedPrice} onChange={setExpectedPrice} icon="trending-up" keyboardType="decimal-pad" />
               <Field label="Remarks" value={remarks} onChange={setRemarks} icon="notes" multiline />
+              {/* === NEW FIELDS === */}
+              <View style={styles.sectionDivider}>
+                <MaterialIcons name="inventory" size={14} color="#FFD700" />
+                <Text style={styles.sectionDividerText}>Inventory Details</Text>
+              </View>
+              <Field label="Storage Location" value={storageLocation} onChange={setStorageLocation} icon="place" placeholder="Shelf 1 > Tub #4 > Row 2" />
+              <Field label="Case Code (A-Q)" value={caseCode} onChange={setCaseCode} icon="alpha" placeholder="e.g. F, G, H" />
+              <Field label="Toy / Collector Number" value={toyNumber} onChange={setToyNumber} icon="tag" placeholder="e.g. 124/250" />
+              <Field label="Card Condition" value={cardCondition} onChange={setCardCondition} icon="credit-card" placeholder="Mint, Soft Corner, Cracked Bubble, Crease" />
+              <Field label="Packaging" value={packaging} onChange={setPackaging} icon="inventory-2" placeholder="Long Card, Short Card, Protector, Loose" />
+              <Field label="Variations / Errors" value={variationText} onChange={setVariationText} icon="style" placeholder="Wheel Swap, Color Shift, Tampo Error" />
+              {/* Allocation picker */}
+              <View style={styles.sectionDivider}>
+                <MaterialIcons name="swap-horiz" size={14} color="#FFD700" />
+                <Text style={styles.sectionDividerText}>Allocation</Text>
+              </View>
+              <View style={styles.allocationRow}>
+                {(['personal', 'trade', 'forSale'] as const).map((a) => (
+                  <TouchableOpacity
+                    key={a}
+                    style={[styles.allocChip, allocation === a && styles.allocChipActive]}
+                    onPress={() => setAllocation(a)}
+                  >
+                    <MaterialIcons name={a === 'personal' ? 'favorite' : a === 'trade' ? 'swap-horiz' : 'sell'} size={14} color={allocation === a ? '#fff' : '#888'} />
+                    <Text style={[styles.allocChipText, allocation === a && styles.allocChipTextActive]}>
+                      {a === 'forSale' ? 'For Sale' : a.charAt(0).toUpperCase() + a.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </>
           ) : (
             <>
@@ -459,7 +521,40 @@ export default function CarDetailScreen() {
                 {car.baseColor ? <DetailItem label="Base Color" value={car.baseColor} icon="square" /> : null}
                 {car.tampos ? <DetailItem label="Tampos" value={car.tampos} icon="brush" /> : null}
                 {car.barcode ? <DetailItem label="Barcode" value={car.barcode} icon="barcode" /> : null}
+                {/* NEW: Inventory Fields */}
+                {car.storageLocation ? <DetailItem label="Location" value={car.storageLocation} icon="place" /> : null}
+                {car.caseCode ? <DetailItem label="Case" value={car.caseCode} icon="alpha" /> : null}
+                {car.toyNumber ? <DetailItem label="Toy #" value={car.toyNumber} icon="tag" /> : null}
+                {car.cardCondition ? <DetailItem label="Card" value={car.cardCondition} icon="credit-card" /> : null}
+                {car.packaging ? <DetailItem label="Package" value={car.packaging} icon="inventory-2" /> : null}
               </View>
+
+              {/* Allocation Badge */}
+              {car.allocation && car.allocation !== 'personal' && (
+                <View style={styles.allocBadge}>
+                  <MaterialIcons name={car.allocation === 'trade' ? 'swap-horiz' : 'sell'} size={14} color={car.allocation === 'forSale' ? '#4caf50' : '#FF9800'} />
+                  <Text style={[styles.allocBadgeText, { color: car.allocation === 'forSale' ? '#4caf50' : '#FF9800' }]}>
+                    {car.allocation === 'forSale' ? 'For Sale' : 'Trade Pile'}
+                  </Text>
+                </View>
+              )}
+
+              {/* Variations */}
+              {car.variations && car.variations.length > 0 && (
+                <View style={styles.variationsSection}>
+                  <View style={styles.variationsHeader}>
+                    <MaterialIcons name="style" size={16} color="#FF9800" />
+                    <Text style={styles.variationsTitle}>Variations & Notes</Text>
+                  </View>
+                  <View style={styles.variationsTags}>
+                    {car.variations.map((v, idx) => (
+                      <View key={idx} style={styles.variationTag}>
+                        <Text style={styles.variationTagText}>{v}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
 
               {/* Price Range */}
               {car.priceRange && car.priceRange.min > 0 && (
@@ -702,13 +797,25 @@ export default function CarDetailScreen() {
 
               {salePrice && parseFloat(salePrice) > 0 && saleQty && parseInt(saleQty) > 0 && car.buyPrice > 0 && (
                 <View style={styles.soldProfitCalc}>
-                  <Text style={styles.soldProfitCalcText}>Total: ₹{(parseFloat(salePrice) * parseInt(saleQty)).toLocaleString('en-IN')}  ·  Profit: </Text>
-                  <Text style={[styles.soldProfitCalcValue, {
-                    color: parseFloat(salePrice) >= car.buyPrice ? '#4caf50' : '#e63946'
-                  }]}>
-                    {parseFloat(salePrice) >= car.buyPrice ? '+' : ''}
-                    ₹{((parseFloat(salePrice) - car.buyPrice) * parseInt(saleQty)).toLocaleString('en-IN')}
-                  </Text>
+                  {(() => {
+                    const sp = parseFloat(salePrice);
+                    const sq = parseInt(saleQty);
+                    const fees = parseFloat(saleFees) || 0;
+                    const ship = parseFloat(saleShipping) || 0;
+                    const total = sp * sq;
+                    const net = total - fees - ship;
+                    const profit = net - (car!.buyPrice * sq);
+                    return (
+                      <>
+                        <Text style={styles.soldProfitCalcText}>Total: ₹{total.toLocaleString('en-IN')}  ·  Net: ₹{net.toLocaleString('en-IN')}  ·  Profit: </Text>
+                        <Text style={[styles.soldProfitCalcValue, {
+                          color: profit >= 0 ? '#4caf50' : '#e63946'
+                        }]}>
+                          {profit >= 0 ? '+' : ''}₹{profit.toLocaleString('en-IN')}
+                        </Text>
+                      </>
+                    );
+                  })()}
                 </View>
               )}
 
@@ -738,6 +845,38 @@ export default function CarDetailScreen() {
                   value={saleBuyerInfo}
                   onChangeText={setSaleBuyerInfo}
                 />
+              </View>
+
+              {/* Platform Fees & Shipping */}
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={[styles.soldInputGroup, { flex: 1 }]}>
+                  <View style={styles.soldInputLabelRow}>
+                    <MaterialIcons name="money-off" size={16} color="#e63946" />
+                    <Text style={styles.soldInputLabel}>Platform Fees (₹)</Text>
+                  </View>
+                  <TextInput
+                    style={styles.soldInput}
+                    placeholder="0"
+                    placeholderTextColor="#555"
+                    value={saleFees}
+                    onChangeText={setSaleFees}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+                <View style={[styles.soldInputGroup, { flex: 1 }]}>
+                  <View style={styles.soldInputLabelRow}>
+                    <MaterialIcons name="local-shipping" size={16} color="#42A5F5" />
+                    <Text style={styles.soldInputLabel}>Shipping (₹)</Text>
+                  </View>
+                  <TextInput
+                    style={styles.soldInput}
+                    placeholder="0"
+                    placeholderTextColor="#555"
+                    value={saleShipping}
+                    onChangeText={setSaleShipping}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
               </View>
 
               <View style={styles.soldInputGroup}>
@@ -899,6 +1038,7 @@ function Field({
   multiline,
   icon,
   keyboardType,
+  placeholder,
 }: {
   label: string;
   value: string;
@@ -906,6 +1046,7 @@ function Field({
   multiline?: boolean;
   icon?: string;
   keyboardType?: 'default' | 'decimal-pad' | 'numeric';
+  placeholder?: string;
 }) {
   return (
     <View style={fieldStyles.container}>
@@ -917,6 +1058,7 @@ function Field({
         style={[fieldStyles.input, multiline && fieldStyles.multiline]}
         value={value}
         onChangeText={onChange}
+        placeholder={placeholder}
         placeholderTextColor="#555"
         multiline={multiline}
         keyboardType={keyboardType || 'default'}
@@ -1316,4 +1458,48 @@ const styles = StyleSheet.create({
   historyEntryRight: { alignItems: 'flex-end' },
   historyEntryPrice: { fontSize: 15, fontWeight: '800', color: '#fff' },
   historyEntryQty: { fontSize: 11, color: '#888', fontWeight: '600', marginTop: 2 },
+
+  // Section divider in edit mode
+  sectionDivider: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 12, marginBottom: 6,
+    borderTopWidth: 1, borderTopColor: '#222', paddingTop: 12,
+  },
+  sectionDividerText: { fontSize: 13, fontWeight: '700', color: '#FFD700' },
+
+  // Allocation chips
+  allocationRow: {
+    flexDirection: 'row', gap: 8, marginBottom: 12,
+  },
+  allocChip: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
+    backgroundColor: '#0f0f23', borderRadius: 10, paddingVertical: 10,
+    borderWidth: 1, borderColor: '#333',
+  },
+  allocChipActive: { backgroundColor: '#333', borderColor: '#FFD700' },
+  allocChipText: { fontSize: 12, color: '#888', fontWeight: '600' },
+  allocChipTextActive: { color: '#fff' },
+
+  // Allocation badge (view mode)
+  allocBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#0f0f23', borderRadius: 10, padding: 10, marginBottom: 12,
+    borderWidth: 1, borderColor: '#333',
+  },
+  allocBadgeText: { fontSize: 13, fontWeight: '700' },
+
+  // Variations section
+  variationsSection: {
+    marginTop: 12, marginBottom: 4,
+  },
+  variationsHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8,
+  },
+  variationsTitle: { fontSize: 13, fontWeight: '700', color: '#FF9800' },
+  variationsTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  variationTag: {
+    backgroundColor: 'rgba(255, 152, 0, 0.15)', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  variationTagText: { fontSize: 11, color: '#FF9800', fontWeight: '600' },
 });

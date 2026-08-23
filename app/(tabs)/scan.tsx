@@ -192,6 +192,13 @@ export default function ScanScreen() {
       soldDate: '',
       soldPlatform: '',
       soldNotes: '',
+      storageLocation: '',
+      allocation: 'personal',
+      cardCondition: '',
+      packaging: '',
+      caseCode: '',
+      toyNumber: '',
+      variations: [],
     };
   };
 

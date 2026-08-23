@@ -62,7 +62,8 @@
         {
           "photosPermission": "Allow Hot Wheels Recorder to access photos for car images."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "extra": {
       "router": {},
