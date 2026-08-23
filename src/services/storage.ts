@@ -158,8 +158,11 @@ export function computeCarStats(car: HotWheelCar) {
   const netRevenue = totalRevenue - totalFees;
   const avgBuyPrice = totalPurchased > 0 ? Math.round(totalInvested / totalPurchased) : 0;
   const avgSellPrice = totalSold > 0 ? Math.round(totalRevenue / totalSold) : 0;
-  const profit = netRevenue - totalInvested;
-  const roi = totalInvested > 0 ? ((profit / totalInvested) * 100) : 0;
+
+  // Realized P&L: only account for the cost of items actually sold
+  const cogs = totalSold * avgBuyPrice;
+  const profit = netRevenue - cogs;
+  const roi = cogs > 0 ? ((profit / cogs) * 100) : 0;
   const inStock = Math.max(0, totalPurchased - totalSold);
 
   return {
@@ -171,6 +174,7 @@ export function computeCarStats(car: HotWheelCar) {
     netRevenue,
     avgBuyPrice,
     avgSellPrice,
+    cogs,
     profit,
     roi,
     inStock,

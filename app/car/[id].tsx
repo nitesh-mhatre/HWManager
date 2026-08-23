@@ -365,23 +365,23 @@ export default function CarDetailScreen() {
                 </View>
                 <View style={styles.inventoryStat}>
                   <Text style={[styles.inventoryStatValue, { color: '#4da6ff' }]}>₹{stats.totalInvested.toLocaleString('en-IN')}</Text>
-                  <Text style={styles.inventoryStatLabel}>Invested</Text>
+                  <Text style={styles.inventoryStatLabel}>Total Invested</Text>
                 </View>
                 <View style={styles.inventoryStat}>
                   <Text style={[styles.inventoryStatValue, { color: '#4caf50' }]}>₹{stats.totalRevenue.toLocaleString('en-IN')}</Text>
                   <Text style={styles.inventoryStatLabel}>Revenue</Text>
                 </View>
               </View>
-              {stats.totalInvested > 0 && stats.totalRevenue > 0 && (
+              {stats.totalSold > 0 && stats.totalRevenue > 0 && (
                 <View style={styles.inventoryProfitRow}>
                   <MaterialIcons name="show-chart" size={16} color={stats.profit >= 0 ? '#4caf50' : '#e63946'} />
-                  <Text style={styles.inventoryProfitLabel}>Total P&L:</Text>
+                  <Text style={styles.inventoryProfitLabel}>Realized P&L:</Text>
                   <Text style={[styles.inventoryProfitValue, { color: stats.profit >= 0 ? '#4caf50' : '#e63946' }]}>
                     {stats.profit >= 0 ? '+' : ''}₹{stats.profit.toLocaleString('en-IN')} ({stats.roi.toFixed(1)}% ROI)
                   </Text>
                 </View>
               )}
-              <Text style={styles.inventoryAvg}>Avg Buy: ₹{stats.avgBuyPrice.toLocaleString('en-IN')}  ·  Avg Sell: ₹{stats.avgSellPrice.toLocaleString('en-IN')}</Text>
+              <Text style={styles.inventoryAvg}>Avg Buy: ₹{stats.avgBuyPrice.toLocaleString('en-IN')}  ·  Avg Sell: ₹{stats.avgSellPrice.toLocaleString('en-IN')}  ·  COGS: ₹{stats.cogs.toLocaleString('en-IN')}</Text>
               {/* Add Purchase Button */}
               <TouchableOpacity style={styles.addPurchaseBtn} onPress={() => setShowPurchaseModal(true)}>
                 <MaterialIcons name="add-circle" size={18} color="#fff" />
