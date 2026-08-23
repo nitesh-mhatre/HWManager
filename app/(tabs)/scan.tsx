@@ -14,10 +14,9 @@ import {
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
-import { getSettings } from '../../src/services/storage';
+import { getSettings, findDuplicateCars, addCar } from '../../src/services/storage';
 import { scanCarFromImage, scanBulkFromImage, searchCarValue } from '../../src/services/nvidia';
-import { addCar } from '../../src/services/storage';
-import { ScanResult } from '../../src/types';
+import { ScanResult, HotWheelCar, PurchaseEntry } from '../../src/types';
 import AdBanner from '../../src/components/AdBanner';
 
 type ScanPhase = 'pick' | 'analyzing' | 'result' | 'searching';
@@ -33,6 +32,10 @@ export default function ScanScreen() {
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState('');
+
+  // Duplicate detection
+  const [duplicateCars, setDuplicateCars] = useState<HotWheelCar[]>([]);
+  const [showDuplicateAlert, setShowDuplicateAlert] = useState(false);
 
   // AI-identified results
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -138,13 +141,24 @@ export default function ScanScreen() {
     return result;
   };
 
-  const buildCar = (r: ScanResult) => {
+  const buildCar = (r: ScanResult): HotWheelCar => {
     const finalYear = userYear.trim() || r.year || '';
     const finalBuyPrice = parseFloat(userBuyPrice) || 0;
     const finalExpectedPrice = parseFloat(userExpectedPrice) || 0;
+    const purchaseId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+
+    const purchase: PurchaseEntry = finalBuyPrice > 0 ? {
+      id: purchaseId,
+      buyPrice: finalBuyPrice,
+      quantity: 1,
+      date: new Date().toISOString(),
+      source: 'Scanned',
+      condition: r.condition || 'Mint',
+      notes: '',
+    } : undefined as any;
 
     return {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      id: purchaseId,
       name: r.name || 'Unknown Car',
       year: finalYear,
       series: r.series || '',
@@ -170,6 +184,9 @@ export default function ScanScreen() {
       history: r.history || '',
       status: r.status || 'UNKNOWN',
       matchScore: r.matchScore || 0,
+      quantity: finalBuyPrice > 0 ? 1 : 0,
+      purchaseHistory: purchase ? [purchase] : [],
+      saleHistory: [],
       isSold: false,
       soldPrice: 0,
       soldDate: '',
@@ -178,11 +195,28 @@ export default function ScanScreen() {
     };
   };
 
-  const addToGarage = async () => {
+  const checkDuplicatesAndAdd = async (toGarage: boolean) => {
     const r = getCurrentResult();
     if (!r) return;
     const car = buildCar(r);
+    // Duplicate detection
+    const dupes = await findDuplicateCars(car.name, car.model, car.year, car.color);
+    if (dupes.length > 0) {
+      setDuplicateCars(dupes);
+      setShowDuplicateAlert(true);
+      // Store the car to add for later
+      setPendingCar({ car, toGarage });
+      return;
+    }
+    await doAddCar(car, toGarage);
+  };
+
+  const [pendingCar, setPendingCar] = useState<{ car: HotWheelCar; toGarage: boolean } | null>(null);
+
+  const doAddCar = async (car: HotWheelCar, toGarage: boolean) => {
     await addCar(car);
+    setShowDuplicateAlert(false);
+    setDuplicateCars([]);
     Alert.alert('Added!', `${car.name} (${car.year}) — ₹${car.priceINR} added to Garage!`, [
       { text: 'View Garage', onPress: () => router.push('/(tabs)/garage') },
       {
@@ -196,6 +230,10 @@ export default function ScanScreen() {
         },
       },
     ]);
+  };
+
+  const addToGarage = async () => {
+    await checkDuplicatesAndAdd(true);
   };
 
   const addToWishlist = async () => {
@@ -660,6 +698,61 @@ export default function ScanScreen() {
                   <Text style={styles.resetButtonText}>Scan Another</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* ===== DUPLICATE ALERT MODAL ===== */}
+              {showDuplicateAlert && duplicateCars.length > 0 && (
+                <View style={styles.dupeOverlay}>
+                  <View style={styles.dupeModal}>
+                    <View style={styles.dupeHeader}>
+                      <MaterialIcons name="content-copy" size={28} color="#FF9800" />
+                      <Text style={styles.dupeTitle}>Duplicate Found!</Text>
+                    </View>
+                    <Text style={styles.dupeDesc}>
+                      You already have {duplicateCars.length} of this car in your collection:
+                    </Text>
+                    {duplicateCars.map((dc) => (
+                      <View key={dc.id} style={styles.dupeCard}>
+                        <View style={styles.dupeCardLeft}>
+                          <Text style={styles.dupeName}>{dc.name}</Text>
+                          <Text style={styles.dupeInfo}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
+                          <Text style={styles.dupePrice}>Paid: ₹{(dc.buyPrice || 0).toLocaleString('en-IN')}</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.dupeViewBtn}
+                          onPress={() => {
+                            setShowDuplicateAlert(false);
+                            router.push({ pathname: '/car/[id]', params: { id: dc.id, source: 'garage' } });
+                          }}
+                        >
+                          <Text style={styles.dupeViewBtnText}>View</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                    <Text style={styles.dupeHint}>Add as a new purchase to track separate buy rates?</Text>
+                    <View style={styles.dupeActions}>
+                      <TouchableOpacity
+                        style={styles.dupeAddBtn}
+                        onPress={() => {
+                          if (pendingCar) doAddCar(pendingCar.car, pendingCar.toGarage);
+                        }}
+                      >
+                        <MaterialIcons name="add-circle" size={18} color="#fff" />
+                        <Text style={styles.dupeAddBtnText}>Add as New Purchase</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.dupeCancelBtn}
+                        onPress={() => {
+                          setShowDuplicateAlert(false);
+                          setDuplicateCars([]);
+                          setPendingCar(null);
+                        }}
+                      >
+                        <Text style={styles.dupeCancelBtnText}>Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              )}
             </>
           ) : null}
         </>
@@ -858,4 +951,41 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a2e', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#2a2a4a',
   },
   resetButtonText: { color: '#aaa', fontSize: 14, fontWeight: '600' },
+
+  // Duplicate alert modal
+  dupeOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center',
+    zIndex: 100, padding: 20,
+  },
+  dupeModal: {
+    backgroundColor: '#1a1a2e', borderRadius: 18, padding: 20,
+    width: '100%', borderWidth: 2, borderColor: '#FF9800',
+  },
+  dupeHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  dupeTitle: { fontSize: 20, fontWeight: '800', color: '#FF9800' },
+  dupeDesc: { fontSize: 13, color: '#aaa', marginBottom: 12, lineHeight: 18 },
+  dupeCard: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f0f23',
+    borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#333',
+  },
+  dupeCardLeft: { flex: 1 },
+  dupeName: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  dupeInfo: { fontSize: 11, color: '#888', marginTop: 2 },
+  dupePrice: { fontSize: 12, color: '#4caf50', fontWeight: '600', marginTop: 2 },
+  dupeViewBtn: {
+    backgroundColor: '#4da6ff', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
+  },
+  dupeViewBtnText: { fontSize: 12, color: '#fff', fontWeight: '700' },
+  dupeHint: { fontSize: 12, color: '#FF9800', marginTop: 8, marginBottom: 12, textAlign: 'center' },
+  dupeActions: { gap: 8 },
+  dupeAddBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#e65100', borderRadius: 12, padding: 14,
+  },
+  dupeAddBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  dupeCancelBtn: {
+    alignItems: 'center', padding: 12, borderRadius: 12,
+  },
+  dupeCancelBtnText: { color: '#888', fontSize: 14, fontWeight: '600' },
 });

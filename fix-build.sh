@@ -9,82 +9,8 @@ npx expo install expo-build-properties
 
 # 2. Update app.json with compatible Kotlin version
 echo "⚙️ Updating app.json..."
-cat << 'EOF' > app.json
-{
-  "expo": {
-    "name": "HW Manager",
-    "slug": "hotwheels-recorder",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
-    "scheme": "hotwheels-recorder",
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.bites.hwmanager",
-      "infoPlist": {
-        "NSCameraUsageDescription": "Hot Wheels Recorder needs camera access to scan your Hot Wheels cars.",
-        "NSPhotoLibraryUsageDescription": "Hot Wheels Recorder needs photo access to import car images."
-      }
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1a1a2e"
-      },
-      "package": "com.bites.hwmanager",
-      "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
-      ]
-    },
-    "web": {
-      "bundler": "metro",
-      "favicon": "./assets/favicon.png"
-    },
-    "plugins": [
-      "expo-router",
-      "expo-font",
-      "expo-asset",
-      "expo-status-bar",
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "kotlinVersion": "2.1.20"
-          }
-        }
-      ],
-      [
-        "react-native-google-mobile-ads",
-        {
-          "androidAppId": "ca-app-pub-2889632845666311~7452613987",
-          "iosAppId": "ca-app-pub-3940256099942544~1458671072"
-        }
-      ],
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Allow Hot Wheels Recorder to scan your cars with the camera."
-        }
-      ],
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "Allow Hot Wheels Recorder to access photos for car images."
-        }
-      ]
-    ],
-    "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "c338b808-ac0c-422f-b5e5-1bb5636bbf70"
-      }
-    },
-    "owner": "mr.bites"
-  }
-}
-EOF
+# app.json is managed by the project — do not overwrite it here.
+# The fixes are already in the committed app.json.
 
 # 3. Clean up custom plugin script if it exists
 rm -f with-play-services-version.js
@@ -95,4 +21,4 @@ rm -rf android ios
 
 # 5. Run EAS Build
 echo "🏗️ Triggering EAS Android build with cleared cache..."
-eas build --platform android --profile production --clear-cache
+eas build --platform android --profile preview --clear-cache

@@ -179,7 +179,7 @@ export default function SetupScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.button, !selectedModel || saving && styles.buttonDisabled]}
+                style={[styles.button, (!selectedModel || saving) && styles.buttonDisabled]}
                 onPress={handleContinue}
                 disabled={!selectedModel || saving}
               >

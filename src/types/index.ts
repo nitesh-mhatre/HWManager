@@ -17,6 +17,28 @@ export interface PriceRange {
   avg: number;
 }
 
+/** A single purchase record — user can buy the same car multiple times at different rates */
+export interface PurchaseEntry {
+  id: string;
+  buyPrice: number;
+  quantity: number;
+  date: string;           // ISO date string
+  source: string;         // where purchased: "Local Shop", "Amazon", "eBay", etc.
+  condition: string;      // Mint, Loose, Damaged, Carded, etc.
+  notes: string;
+}
+
+/** A single sale record — user can sell units of a car at different rates */
+export interface SaleEntry {
+  id: string;
+  soldPrice: number;
+  quantity: number;
+  date: string;           // ISO date string
+  platform: string;       // eBay, Mercari, FB Marketplace, etc.
+  buyerInfo: string;
+  notes: string;
+}
+
 export interface HotWheelCar {
   id: string;
   name: string;
@@ -27,6 +49,7 @@ export interface HotWheelCar {
   scale: string;
   rarity: string;
   condition: string;   // mint, loose, damaged
+  // Legacy single-price fields (kept for backward compatibility)
   buyPrice: number;
   expectedPrice: number;
   priceINR: number;
@@ -44,7 +67,11 @@ export interface HotWheelCar {
   history: string;      // car history, background info from AI
   status: string;       // MATCHED, AMBIGUOUS, NO_MATCH, NEEDS_BETTER_PHOTO
   matchScore: number;   // 0-100, how well evidence matched database
-  // Sold tracking
+  // Professional inventory tracking
+  quantity: number;           // total units in stock (sum of purchases minus sales)
+  purchaseHistory: PurchaseEntry[];
+  saleHistory: SaleEntry[];
+  // Sold tracking (legacy, kept for backward compat)
   isSold: boolean;
   soldPrice: number;
   soldDate: string;     // ISO date string

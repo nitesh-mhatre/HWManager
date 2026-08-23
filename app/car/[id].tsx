@@ -14,8 +14,8 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { getAllCars, updateCar, deleteCar } from '../../src/services/storage';
-import { HotWheelCar } from '../../src/types';
+import { getAllCars, updateCar, deleteCar, addPurchaseToCar, addSaleToCar, computeCarStats } from '../../src/services/storage';
+import { HotWheelCar, PurchaseEntry, SaleEntry } from '../../src/types';
 import { searchCarValue } from '../../src/services/nvidia';
 import { getSettings } from '../../src/services/storage';
 import AdBanner from '../../src/components/AdBanner';
@@ -45,6 +45,22 @@ export default function CarDetailScreen() {
   const [soldPrice, setSoldPrice] = useState('');
   const [soldPlatform, setSoldPlatform] = useState('');
   const [soldNotes, setSoldNotes] = useState('');
+
+  // Purchase history modal
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+  const [purchasePrice, setPurchasePrice] = useState('');
+  const [purchaseQty, setPurchaseQty] = useState('1');
+  const [purchaseSource, setPurchaseSource] = useState('');
+  const [purchaseCondition, setPurchaseCondition] = useState('Mint');
+  const [purchaseNotes, setPurchaseNotes] = useState('');
+
+  // Sale history modal
+  const [showSaleModal, setShowSaleModal] = useState(false);
+  const [salePrice, setSalePrice] = useState('');
+  const [saleQty, setSaleQty] = useState('1');
+  const [salePlatform, setSalePlatform] = useState('');
+  const [saleBuyerInfo, setSaleBuyerInfo] = useState('');
+  const [saleNotes, setSaleNotes] = useState('');
 
   useEffect(() => {
     loadCar();
@@ -98,44 +114,66 @@ export default function CarDetailScreen() {
 
   const handleMarkSold = async () => {
     if (!car) return;
-    const price = parseFloat(soldPrice);
+    const price = parseFloat(salePrice);
+    const qty = parseInt(saleQty) || 1;
     if (!price || price <= 0) {
       Alert.alert('Invalid Price', 'Please enter a valid sold price.');
       return;
     }
-    const profit = price - car.buyPrice;
-    const roi = car.buyPrice > 0 ? ((profit / car.buyPrice) * 100).toFixed(1) : '0';
+    if (qty > (car.quantity || 0)) {
+      Alert.alert('Insufficient Stock', `You only have ${car.quantity || 0} units in stock.`);
+      return;
+    }
+    const entry: SaleEntry = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      soldPrice: price,
+      quantity: qty,
+      date: new Date().toISOString(),
+      platform: salePlatform.trim(),
+      buyerInfo: saleBuyerInfo.trim(),
+      notes: saleNotes.trim(),
+    };
+    const updated = await addSaleToCar(car.id, entry);
+    if (updated) {
+      setCar(updated);
+      setShowSaleModal(false);
+      setSalePrice('');
+      setSaleQty('1');
+      setSalePlatform('');
+      setSaleBuyerInfo('');
+      setSaleNotes('');
+      Alert.alert('Sale Recorded!', `Sold ${qty}x "${car.name}" for ₹${(price * qty).toLocaleString('en-IN')}`);
+    }
+  };
 
-    Alert.alert(
-      'Confirm Sale',
-      `Sold "${car.name}" for ₹${price.toLocaleString('en-IN')}\n\n` +
-      `Buy Price: ₹${car.buyPrice.toLocaleString('en-IN')}\n` +
-      `Profit: ${profit >= 0 ? '+' : ''}₹${profit.toLocaleString('en-IN')}\n` +
-      `ROI: ${roi}%`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm Sold',
-          onPress: async () => {
-            const updated: HotWheelCar = {
-              ...car,
-              isSold: true,
-              soldPrice: price,
-              soldDate: new Date().toISOString(),
-              soldPlatform: soldPlatform.trim(),
-              soldNotes: soldNotes.trim(),
-            };
-            await updateCar(updated);
-            setCar(updated);
-            setShowSoldModal(false);
-            Alert.alert(
-              'Sold!',
-              `${car.name} marked as sold.\nProfit: ₹${profit.toLocaleString('en-IN')} (${roi}% ROI)`
-            );
-          },
-        },
-      ]
-    );
+  const handleAddPurchase = async () => {
+    if (!car) return;
+    const price = parseFloat(purchasePrice);
+    const qty = parseInt(purchaseQty) || 1;
+    if (!price || price <= 0) {
+      Alert.alert('Invalid Price', 'Please enter a valid buy price.');
+      return;
+    }
+    const entry: PurchaseEntry = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      buyPrice: price,
+      quantity: qty,
+      date: new Date().toISOString(),
+      source: purchaseSource.trim() || 'Unknown',
+      condition: purchaseCondition.trim() || 'Mint',
+      notes: purchaseNotes.trim(),
+    };
+    const updated = await addPurchaseToCar(car.id, entry);
+    if (updated) {
+      setCar(updated);
+      setShowPurchaseModal(false);
+      setPurchasePrice('');
+      setPurchaseQty('1');
+      setPurchaseSource('');
+      setPurchaseCondition('Mint');
+      setPurchaseNotes('');
+      Alert.alert('Purchase Added!', `Added ${qty}x at ₹${price.toLocaleString('en-IN')} each`);
+    }
   };
 
   const handleUndoSold = async () => {
@@ -271,6 +309,107 @@ export default function CarDetailScreen() {
             thumbColor={car.inCollection ? '#4caf50' : '#888'}
           />
         </View>
+
+        {/* ===== INVENTORY STATS ===== */}
+        {!editing && car.inCollection && (() => {
+          const stats = computeCarStats(car);
+          return (
+            <View style={styles.inventoryCard}>
+              <View style={styles.inventoryHeader}>
+                <MaterialCommunityIcons name="package-variant" size={18} color="#FFD700" />
+                <Text style={styles.inventoryTitle}>Inventory</Text>
+                <View style={styles.qtyBadge}>
+                  <Text style={styles.qtyBadgeText}>{stats.inStock} in stock</Text>
+                </View>
+              </View>
+              <View style={styles.inventoryGrid}>
+                <View style={styles.inventoryStat}>
+                  <Text style={styles.inventoryStatValue}>{stats.totalPurchased}</Text>
+                  <Text style={styles.inventoryStatLabel}>Bought</Text>
+                </View>
+                <View style={styles.inventoryStat}>
+                  <Text style={styles.inventoryStatValue}>{stats.totalSold}</Text>
+                  <Text style={styles.inventoryStatLabel}>Sold</Text>
+                </View>
+                <View style={styles.inventoryStat}>
+                  <Text style={[styles.inventoryStatValue, { color: '#4da6ff' }]}>₹{stats.totalInvested.toLocaleString('en-IN')}</Text>
+                  <Text style={styles.inventoryStatLabel}>Invested</Text>
+                </View>
+                <View style={styles.inventoryStat}>
+                  <Text style={[styles.inventoryStatValue, { color: '#4caf50' }]}>₹{stats.totalRevenue.toLocaleString('en-IN')}</Text>
+                  <Text style={styles.inventoryStatLabel}>Revenue</Text>
+                </View>
+              </View>
+              {stats.totalInvested > 0 && stats.totalRevenue > 0 && (
+                <View style={styles.inventoryProfitRow}>
+                  <MaterialIcons name="show-chart" size={16} color={stats.profit >= 0 ? '#4caf50' : '#e63946'} />
+                  <Text style={styles.inventoryProfitLabel}>Total P&L:</Text>
+                  <Text style={[styles.inventoryProfitValue, { color: stats.profit >= 0 ? '#4caf50' : '#e63946' }]}>
+                    {stats.profit >= 0 ? '+' : ''}₹{stats.profit.toLocaleString('en-IN')} ({stats.roi.toFixed(1)}% ROI)
+                  </Text>
+                </View>
+              )}
+              <Text style={styles.inventoryAvg}>Avg Buy: ₹{stats.avgBuyPrice.toLocaleString('en-IN')}  ·  Avg Sell: ₹{stats.avgSellPrice.toLocaleString('en-IN')}</Text>
+              {/* Add Purchase Button */}
+              <TouchableOpacity style={styles.addPurchaseBtn} onPress={() => setShowPurchaseModal(true)}>
+                <MaterialIcons name="add-circle" size={18} color="#fff" />
+                <Text style={styles.addPurchaseBtnText}>Add New Purchase</Text>
+              </TouchableOpacity>
+            </View>
+          );
+        })()}
+
+        {/* ===== PURCHASE HISTORY ===== */}
+        {!editing && car.purchaseHistory && car.purchaseHistory.length > 0 && (
+          <View style={styles.historyCard}>
+            <View style={styles.historyCardHeader}>
+              <MaterialIcons name="receipt-long" size={18} color="#4da6ff" />
+              <Text style={styles.historyCardTitle}>Purchase History</Text>
+              <View style={styles.historyCountBadge}>
+                <Text style={styles.historyCountText}>{car.purchaseHistory.length}</Text>
+              </View>
+            </View>
+            {car.purchaseHistory.map((p, idx) => (
+              <View key={p.id || idx} style={styles.historyEntry}>
+                <View style={styles.historyEntryLeft}>
+                  <Text style={styles.historyEntryDate}>{new Date(p.date).toLocaleDateString('en-IN')}</Text>
+                  <Text style={styles.historyEntrySource}>{p.source || 'Unknown'} · {p.condition || 'Mint'}</Text>
+                  {p.notes ? <Text style={styles.historyEntryNotes}>{p.notes}</Text> : null}
+                </View>
+                <View style={styles.historyEntryRight}>
+                  <Text style={styles.historyEntryPrice}>₹{p.buyPrice.toLocaleString('en-IN')}</Text>
+                  <Text style={styles.historyEntryQty}>x{p.quantity || 1}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* ===== SALE HISTORY ===== */}
+        {!editing && car.saleHistory && car.saleHistory.length > 0 && (
+          <View style={styles.historyCard}>
+            <View style={styles.historyCardHeader}>
+              <MaterialIcons name="sell" size={18} color="#4caf50" />
+              <Text style={styles.historyCardTitle}>Sale History</Text>
+              <View style={[styles.historyCountBadge, { backgroundColor: 'rgba(76, 175, 80, 0.2)' }]}>
+                <Text style={[styles.historyCountText, { color: '#4caf50' }]}>{car.saleHistory.length}</Text>
+              </View>
+            </View>
+            {car.saleHistory.map((s, idx) => (
+              <View key={s.id || idx} style={styles.historyEntry}>
+                <View style={styles.historyEntryLeft}>
+                  <Text style={styles.historyEntryDate}>{new Date(s.date).toLocaleDateString('en-IN')}</Text>
+                  <Text style={styles.historyEntrySource}>{s.platform || 'Unknown'}{s.buyerInfo ? ` · ${s.buyerInfo}` : ''}</Text>
+                  {s.notes ? <Text style={styles.historyEntryNotes}>{s.notes}</Text> : null}
+                </View>
+                <View style={styles.historyEntryRight}>
+                  <Text style={[styles.historyEntryPrice, { color: '#4caf50' }]}>₹{s.soldPrice.toLocaleString('en-IN')}</Text>
+                  <Text style={styles.historyEntryQty}>x{s.quantity || 1}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* Details card */}
         <View style={styles.card}>
@@ -480,13 +619,24 @@ export default function CarDetailScreen() {
         ) : (
           <>
             {/* Mark as Sold button */}
-            {!car.isSold && car.buyPrice > 0 && (
+            {(!car.isSold || (car.quantity || 0) > 0) && (car.buyPrice > 0 || (car.purchaseHistory && car.purchaseHistory.length > 0)) && (
               <TouchableOpacity
                 style={styles.soldButton}
-                onPress={() => setShowSoldModal(true)}
+                onPress={() => setShowSaleModal(true)}
               >
                 <MaterialIcons name="sell" size={20} color="#fff" />
-                <Text style={styles.soldButtonText}>Mark as Sold</Text>
+                <Text style={styles.soldButtonText}>Record Sale</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Add Purchase button (also available outside inventory card for quick access) */}
+            {car.inCollection && !(car.purchaseHistory && car.purchaseHistory.length > 0) && (
+              <TouchableOpacity
+                style={[styles.soldButton, { backgroundColor: '#1565C0' }]}
+                onPress={() => setShowPurchaseModal(true)}
+              >
+                <MaterialIcons name="add-circle" size={20} color="#fff" />
+                <Text style={styles.soldButtonText}>Add Purchase</Text>
               </TouchableOpacity>
             )}
 
@@ -503,53 +653,64 @@ export default function CarDetailScreen() {
           </>
         )}
 
-        {/* Sold Modal */}
-        {showSoldModal && (
+        {/* ===== SALE MODAL ===== */}
+        {showSaleModal && (
           <View style={styles.soldModalOverlay}>
             <View style={styles.soldModal}>
               <View style={styles.soldModalHeader}>
                 <MaterialIcons name="sell" size={24} color="#4caf50" />
-                <Text style={styles.soldModalTitle}>Mark as Sold</Text>
-                <TouchableOpacity onPress={() => setShowSoldModal(false)}>
+                <Text style={styles.soldModalTitle}>Record Sale</Text>
+                <TouchableOpacity onPress={() => setShowSaleModal(false)}>
                   <MaterialIcons name="close" size={22} color="#888" />
                 </TouchableOpacity>
               </View>
 
               <View style={styles.soldModalProfitPreview}>
-                <Text style={styles.soldModalProfitLabel}>Buy Price: ₹{car.buyPrice.toLocaleString('en-IN')}</Text>
+                <Text style={styles.soldModalProfitLabel}>In Stock: {car.quantity || 0}  ·  Avg Buy: ₹{car.buyPrice.toLocaleString('en-IN')}</Text>
               </View>
 
               <View style={styles.soldInputGroup}>
                 <View style={styles.soldInputLabelRow}>
                   <MaterialIcons name="attach-money" size={16} color="#4caf50" />
-                  <Text style={styles.soldInputLabel}>Sold Price (₹) *</Text>
+                  <Text style={styles.soldInputLabel}>Sell Price per Unit (₹) *</Text>
                 </View>
                 <TextInput
                   style={styles.soldInput}
-                  placeholder="Enter sold price"
+                  placeholder="Enter sell price"
                   placeholderTextColor="#555"
-                  value={soldPrice}
-                  onChangeText={setSoldPrice}
+                  value={salePrice}
+                  onChangeText={setSalePrice}
                   keyboardType="decimal-pad"
                   autoFocus
                 />
-                {soldPrice && parseFloat(soldPrice) > 0 && car.buyPrice > 0 && (
-                  <View style={styles.soldProfitCalc}>
-                    <Text style={styles.soldProfitCalcText}>Profit: </Text>
-                    <Text style={[styles.soldProfitCalcValue, {
-                      color: parseFloat(soldPrice) >= car.buyPrice ? '#4caf50' : '#e63946'
-                    }]}>
-                      {parseFloat(soldPrice) >= car.buyPrice ? '+' : ''}
-                      ₹{(parseFloat(soldPrice) - car.buyPrice).toLocaleString('en-IN')}
-                    </Text>
-                    <Text style={[styles.soldProfitCalcRoi, {
-                      color: parseFloat(soldPrice) >= car.buyPrice ? '#4caf50' : '#e63946'
-                    }]}>
-                      ({(((parseFloat(soldPrice) - car.buyPrice) / car.buyPrice) * 100).toFixed(1)}% ROI)
-                    </Text>
-                  </View>
-                )}
               </View>
+
+              <View style={styles.soldInputGroup}>
+                <View style={styles.soldInputLabelRow}>
+                  <MaterialIcons name="numbers" size={16} color="#42A5F5" />
+                  <Text style={styles.soldInputLabel}>Quantity to Sell</Text>
+                </View>
+                <TextInput
+                  style={styles.soldInput}
+                  placeholder={`Max: ${car.quantity || 0}`}
+                  placeholderTextColor="#555"
+                  value={saleQty}
+                  onChangeText={setSaleQty}
+                  keyboardType="number-pad"
+                />
+              </View>
+
+              {salePrice && parseFloat(salePrice) > 0 && saleQty && parseInt(saleQty) > 0 && car.buyPrice > 0 && (
+                <View style={styles.soldProfitCalc}>
+                  <Text style={styles.soldProfitCalcText}>Total: ₹{(parseFloat(salePrice) * parseInt(saleQty)).toLocaleString('en-IN')}  ·  Profit: </Text>
+                  <Text style={[styles.soldProfitCalcValue, {
+                    color: parseFloat(salePrice) >= car.buyPrice ? '#4caf50' : '#e63946'
+                  }]}>
+                    {parseFloat(salePrice) >= car.buyPrice ? '+' : ''}
+                    ₹{((parseFloat(salePrice) - car.buyPrice) * parseInt(saleQty)).toLocaleString('en-IN')}
+                  </Text>
+                </View>
+              )}
 
               <View style={styles.soldInputGroup}>
                 <View style={styles.soldInputLabelRow}>
@@ -560,8 +721,22 @@ export default function CarDetailScreen() {
                   style={styles.soldInput}
                   placeholder="e.g. eBay, Mercari, FB Marketplace"
                   placeholderTextColor="#555"
-                  value={soldPlatform}
-                  onChangeText={setSoldPlatform}
+                  value={salePlatform}
+                  onChangeText={setSalePlatform}
+                />
+              </View>
+
+              <View style={styles.soldInputGroup}>
+                <View style={styles.soldInputLabelRow}>
+                  <MaterialIcons name="person" size={16} color="#FFD700" />
+                  <Text style={styles.soldInputLabel}>Buyer Info</Text>
+                </View>
+                <TextInput
+                  style={styles.soldInput}
+                  placeholder="Buyer name or contact"
+                  placeholderTextColor="#555"
+                  value={saleBuyerInfo}
+                  onChangeText={setSaleBuyerInfo}
                 />
               </View>
 
@@ -572,21 +747,126 @@ export default function CarDetailScreen() {
                 </View>
                 <TextInput
                   style={[styles.soldInput, { minHeight: 50 }]}
-                  placeholder="Buyer info, shipping, etc."
+                  placeholder="Shipping, condition notes, etc."
                   placeholderTextColor="#555"
-                  value={soldNotes}
-                  onChangeText={setSoldNotes}
+                  value={saleNotes}
+                  onChangeText={setSaleNotes}
                   multiline
                 />
               </View>
 
               <View style={styles.soldModalActions}>
-                <TouchableOpacity style={styles.soldCancelBtn} onPress={() => setShowSoldModal(false)}>
+                <TouchableOpacity style={styles.soldCancelBtn} onPress={() => setShowSaleModal(false)}>
                   <Text style={styles.soldCancelBtnText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.soldConfirmBtn} onPress={handleMarkSold}>
                   <MaterialIcons name="check" size={18} color="#fff" />
-                  <Text style={styles.soldConfirmBtnText}>Confirm Sale</Text>
+                  <Text style={styles.soldConfirmBtnText}>Record Sale</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ===== PURCHASE MODAL ===== */}
+        {showPurchaseModal && (
+          <View style={styles.soldModalOverlay}>
+            <View style={styles.soldModal}>
+              <View style={styles.soldModalHeader}>
+                <MaterialIcons name="add-shopping-cart" size={24} color="#4da6ff" />
+                <Text style={[styles.soldModalTitle, { color: '#4da6ff' }]}>Add Purchase</Text>
+                <TouchableOpacity onPress={() => setShowPurchaseModal(false)}>
+                  <MaterialIcons name="close" size={22} color="#888" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.soldInputGroup}>
+                <View style={styles.soldInputLabelRow}>
+                  <MaterialIcons name="attach-money" size={16} color="#4da6ff" />
+                  <Text style={styles.soldInputLabel}>Buy Price per Unit (₹) *</Text>
+                </View>
+                <TextInput
+                  style={styles.soldInput}
+                  placeholder="What you paid per unit"
+                  placeholderTextColor="#555"
+                  value={purchasePrice}
+                  onChangeText={setPurchasePrice}
+                  keyboardType="decimal-pad"
+                  autoFocus
+                />
+              </View>
+
+              <View style={styles.soldInputGroup}>
+                <View style={styles.soldInputLabelRow}>
+                  <MaterialIcons name="numbers" size={16} color="#42A5F5" />
+                  <Text style={styles.soldInputLabel}>Quantity</Text>
+                </View>
+                <TextInput
+                  style={styles.soldInput}
+                  placeholder="Number of units"
+                  placeholderTextColor="#555"
+                  value={purchaseQty}
+                  onChangeText={setPurchaseQty}
+                  keyboardType="number-pad"
+                />
+              </View>
+
+              <View style={styles.soldInputGroup}>
+                <View style={styles.soldInputLabelRow}>
+                  <MaterialIcons name="store" size={16} color="#FF9800" />
+                  <Text style={styles.soldInputLabel}>Source / Where Bought</Text>
+                </View>
+                <TextInput
+                  style={styles.soldInput}
+                  placeholder="e.g. Amazon, Local Shop, eBay"
+                  placeholderTextColor="#555"
+                  value={purchaseSource}
+                  onChangeText={setPurchaseSource}
+                />
+              </View>
+
+              <View style={styles.soldInputGroup}>
+                <View style={styles.soldInputLabelRow}>
+                  <MaterialIcons name="check-circle" size={16} color="#4caf50" />
+                  <Text style={styles.soldInputLabel}>Condition</Text>
+                </View>
+                <TextInput
+                  style={styles.soldInput}
+                  placeholder="Mint, Carded, Loose, Damaged"
+                  placeholderTextColor="#555"
+                  value={purchaseCondition}
+                  onChangeText={setPurchaseCondition}
+                />
+              </View>
+
+              <View style={styles.soldInputGroup}>
+                <View style={styles.soldInputLabelRow}>
+                  <MaterialIcons name="notes" size={16} color="#FFD700" />
+                  <Text style={styles.soldInputLabel}>Notes</Text>
+                </View>
+                <TextInput
+                  style={[styles.soldInput, { minHeight: 50 }]}
+                  placeholder="Extra details"
+                  placeholderTextColor="#555"
+                  value={purchaseNotes}
+                  onChangeText={setPurchaseNotes}
+                  multiline
+                />
+              </View>
+
+              {purchasePrice && parseFloat(purchasePrice) > 0 && purchaseQty && parseInt(purchaseQty) > 0 && (
+                <View style={styles.soldProfitCalc}>
+                  <Text style={styles.soldProfitCalcText}>Total Cost: ₹{(parseFloat(purchasePrice) * parseInt(purchaseQty)).toLocaleString('en-IN')}</Text>
+                </View>
+              )}
+
+              <View style={styles.soldModalActions}>
+                <TouchableOpacity style={styles.soldCancelBtn} onPress={() => setShowPurchaseModal(false)}>
+                  <Text style={styles.soldCancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.soldConfirmBtn, { backgroundColor: '#1565C0' }]} onPress={handleAddPurchase}>
+                  <MaterialIcons name="check" size={18} color="#fff" />
+                  <Text style={styles.soldConfirmBtnText}>Add Purchase</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -977,4 +1257,63 @@ const styles = StyleSheet.create({
   adSection: {
     marginHorizontal: 16, marginBottom: 12,
   },
+
+  // Inventory Stats Card
+  inventoryCard: {
+    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
+    marginHorizontal: 16, marginBottom: 12, borderWidth: 1.5, borderColor: '#FFD700',
+  },
+  inventoryHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12,
+  },
+  inventoryTitle: { fontSize: 16, fontWeight: '800', color: '#FFD700', flex: 1 },
+  qtyBadge: {
+    backgroundColor: 'rgba(255, 215, 0, 0.2)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4,
+  },
+  qtyBadgeText: { fontSize: 12, color: '#FFD700', fontWeight: '700' },
+  inventoryGrid: {
+    flexDirection: 'row', gap: 8, marginBottom: 8,
+  },
+  inventoryStat: {
+    flex: 1, backgroundColor: '#0f0f23', borderRadius: 10, padding: 10, alignItems: 'center',
+  },
+  inventoryStatValue: { fontSize: 16, fontWeight: '800', color: '#fff' },
+  inventoryStatLabel: { fontSize: 9, color: '#666', textTransform: 'uppercase', marginTop: 2 },
+  inventoryProfitRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#0f0f23', borderRadius: 10, padding: 10, marginBottom: 8,
+  },
+  inventoryProfitLabel: { fontSize: 12, color: '#888', fontWeight: '600' },
+  inventoryProfitValue: { fontSize: 14, fontWeight: '800', flex: 1, textAlign: 'right' },
+  inventoryAvg: { fontSize: 11, color: '#666', textAlign: 'center', marginBottom: 10 },
+  addPurchaseBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#1565C0', borderRadius: 12, padding: 12,
+  },
+  addPurchaseBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+
+  // Purchase / Sale History Cards
+  historyCard: {
+    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
+    marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderColor: '#2a2a4a',
+  },
+  historyCardHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12,
+  },
+  historyCardTitle: { fontSize: 15, fontWeight: '800', color: '#4da6ff', flex: 1 },
+  historyCountBadge: {
+    backgroundColor: 'rgba(77, 166, 255, 0.2)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
+  },
+  historyCountText: { fontSize: 12, color: '#4da6ff', fontWeight: '700' },
+  historyEntry: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: '#222',
+  },
+  historyEntryLeft: { flex: 1, marginRight: 12 },
+  historyEntryDate: { fontSize: 12, color: '#aaa', fontWeight: '600' },
+  historyEntrySource: { fontSize: 11, color: '#666', marginTop: 2 },
+  historyEntryNotes: { fontSize: 10, color: '#555', marginTop: 2, fontStyle: 'italic' },
+  historyEntryRight: { alignItems: 'flex-end' },
+  historyEntryPrice: { fontSize: 15, fontWeight: '800', color: '#fff' },
+  historyEntryQty: { fontSize: 11, color: '#888', fontWeight: '600', marginTop: 2 },
 });

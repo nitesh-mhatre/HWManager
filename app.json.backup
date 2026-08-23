@@ -39,8 +39,12 @@
         "expo-build-properties",
         {
           "android": {
+            "kotlinVersion": "2.2.20",
             "compileSdkVersion": 36,
-            "targetSdkVersion": 36
+            "targetSdkVersion": 36,
+            "extraKotlinCompilerArgs": [
+              "-Xskip-metadata-version-check"
+            ]
           }
         }
       ],
@@ -67,9 +71,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "b8002714-a799-4d98-9147-5fc1eb81a68c"
+        "projectId": "c338b808-ac0c-422f-b5e5-1bb5636bbf70"
       }
     },
-    "owner": "techboyfrombites"
+    "owner": "mr.bites"
   }
 }

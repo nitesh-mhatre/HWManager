@@ -168,6 +168,17 @@ export default function GarageScreen() {
     );
   };
 
+  // Quantity badge
+  const renderQtyBadge = (qty?: number) => {
+    if (!qty || qty <= 1) return null;
+    return (
+      <View style={styles.qtyBadge}>
+        <MaterialCommunityIcons name="package-variant" size={10} color="#FFD700" />
+        <Text style={styles.qtyBadgeText}>x{qty}</Text>
+      </View>
+    );
+  };
+
   // ── List View Card ──
   const renderListItem = ({ item }: { item: HotWheelCar }) => (
     <TouchableOpacity
@@ -190,6 +201,7 @@ export default function GarageScreen() {
           </View>
         )}
         {renderRarityBadge(item.rarity)}
+        {renderQtyBadge(item.quantity)}
       </View>
       <View style={styles.cardInfo}>
         <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
@@ -243,6 +255,7 @@ export default function GarageScreen() {
           </View>
         )}
         {renderRarityBadge(item.rarity)}
+        {renderQtyBadge(item.quantity)}
       </View>
       <View style={styles.gridInfo}>
         <Text style={styles.gridName} numberOfLines={1}>{item.name}</Text>
@@ -548,6 +561,12 @@ const styles = StyleSheet.create({
   rarityPremium: { backgroundColor: 'rgba(156, 39, 176, 0.2)' },
   rarityMainline: { backgroundColor: 'rgba(0,0,0,0.7)' },
   rarityText: { fontSize: 9, color: '#fff', fontWeight: '700' },
+  qtyBadge: {
+    position: 'absolute', top: 8, left: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: 'rgba(255, 215, 0, 0.25)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
+  },
+  qtyBadgeText: { fontSize: 10, color: '#FFD700', fontWeight: '700' },
   cardPrice: {
     paddingHorizontal: 12, paddingBottom: 10, paddingTop: 4,
     borderTopWidth: 0.5, borderTopColor: '#252540',

@@ -12,7 +12,8 @@ import {
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { addCar, getSettings } from '../../src/services/storage';
+import { addCar, getSettings, findDuplicateCars } from '../../src/services/storage';
+import { HotWheelCar, PurchaseEntry } from '../../src/types';
 import { identifyHotWheel, researchHotWheelComplete } from '../../src/services/nvidia';
 import { ScanResult } from '../../src/types';
 
@@ -69,10 +70,11 @@ export default function AddScreen() {
     }
   };
 
-  const addToGarage = async () => {
-    if (!result) return;
-    const car = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+  const buildNewCar = (): HotWheelCar | null => {
+    if (!result) return null;
+    const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    return {
+      id,
       name: result.name || 'Unknown Car',
       year: result.year || '',
       series: result.series || '',
@@ -98,12 +100,47 @@ export default function AddScreen() {
       history: result.history || '',
       status: result.status || 'UNKNOWN',
       matchScore: result.matchScore || 0,
+      quantity: 1,
+      purchaseHistory: [],
+      saleHistory: [],
       isSold: false,
       soldPrice: 0,
       soldDate: '',
       soldPlatform: '',
       soldNotes: '',
     };
+  };
+
+  const addToGarage = async () => {
+    const car = buildNewCar();
+    if (!car) return;
+    // Duplicate detection
+    const dupes = await findDuplicateCars(car.name, car.model, car.year, car.color);
+    if (dupes.length > 0) {
+      const dupeNames = dupes.map(d => `${d.name} (${d.year}) — Qty: ${d.quantity || 1}, Paid: ₹${d.buyPrice}`).join('\n');
+      Alert.alert(
+        '⚠️ Duplicate Found!',
+        `You already have this car in your collection:\n\n${dupeNames}\n\nAdd as a new purchase?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Add as New Purchase',
+            onPress: async () => {
+              await addCar(car);
+              Alert.alert('Added!', `${car.name} added as a new purchase to Garage!`, [
+                { text: 'View Garage', onPress: () => router.push('/(tabs)/garage') },
+                { text: 'Done', onPress: reset },
+              ]);
+            },
+          },
+          {
+            text: 'View Existing',
+            onPress: () => router.push({ pathname: '/car/[id]', params: { id: dupes[0].id, source: 'garage' } }),
+          },
+        ]
+      );
+      return;
+    }
     await addCar(car);
     Alert.alert('Added!', `${car.name} (${car.year}) — ₹${car.priceINR} added to Garage!`, [
       { text: 'View Garage', onPress: () => router.push('/(tabs)/garage') },
@@ -112,40 +149,10 @@ export default function AddScreen() {
   };
 
   const addToWishlist = async () => {
-    if (!result) return;
-    const car = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-      name: result.name || 'Unknown Car',
-      year: result.year || '',
-      series: result.series || '',
-      color: result.color || '',
-      model: result.model || '',
-      scale: result.scale || '1:64',
-      rarity: result.rarity || '',
-      condition: '',
-      buyPrice: 0,
-      expectedPrice: result.priceINR || 0,
-      priceINR: result.priceINR || 0,
-      priceRange: result.priceRange || { min: 0, max: 0, avg: 0 },
-      priceSources: result.priceSources || [],
-      remarks: result.searchResults || '',
-      images: imageUri ? [imageUri] : [],
-      inCollection: false,
-      dateAdded: new Date().toISOString(),
-      barcode: result.barcode || '',
-      manufacturer: result.manufacturer || 'Mattel',
-      tampos: result.tampos || '',
-      wheelType: result.wheelType || '',
-      baseColor: result.baseColor || '',
-      history: result.history || '',
-      status: result.status || 'UNKNOWN',
-      matchScore: result.matchScore || 0,
-      isSold: false,
-      soldPrice: 0,
-      soldDate: '',
-      soldPlatform: '',
-      soldNotes: '',
-    };
+    const car = buildNewCar();
+    if (!car) return;
+    car.inCollection = false;
+    car.condition = '';
     await addCar(car);
     Alert.alert('Added to Wishlist!', `${car.name} — ₹${car.priceINR}`, [
       { text: 'View Wishlist', onPress: () => router.push('/(tabs)/wishlist') },
