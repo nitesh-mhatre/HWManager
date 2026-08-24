@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,8 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { getAllCars, updateCar, deleteCar, addPurchaseToCar, addSaleToCar, computeCarStats, getGarage, getWishlist } from '../../src/services/storage';
+import * as ImagePicker from 'expo-image-picker';
+import { getAllCars, updateCar, deleteCar, addPurchaseToCar, addSaleToCar, computeCarStats, getGarage, getWishlist, analyzeDuplicateDetails, DuplicateAnalysis } from '../../src/services/storage';
 import { HotWheelCar, PurchaseEntry, SaleEntry } from '../../src/types';
 import { searchCarValue } from '../../src/services/nvidia';
 import { getSettings } from '../../src/services/storage';
@@ -31,6 +32,24 @@ export default function CarDetailScreen() {
   const [siblingCars, setSiblingCars] = useState<HotWheelCar[]>([]);
   const [siblingIndex, setSiblingIndex] = useState(0);
   const translateX = useRef(new Animated.Value(0)).current;
+
+  // Photo change state
+  const [newImageUri, setNewImageUri] = useState<string | null>(null);
+
+  // Duplicate analysis state
+  const [dupeAnalysis, setDupeAnalysis] = useState<DuplicateAnalysis | null>(null);
+
+  // Refs to avoid stale closures in PanResponder
+  const siblingIndexRef = useRef(0);
+  const siblingCarsRef = useRef<HotWheelCar[]>([]);
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    siblingIndexRef.current = siblingIndex;
+  }, [siblingIndex]);
+  useEffect(() => {
+    siblingCarsRef.current = siblingCars;
+  }, [siblingCars]);
 
   // Editable fields
   const [name, setName] = useState('');
@@ -107,47 +126,45 @@ export default function CarDetailScreen() {
     }
   };
 
-  // Swipe gesture — uses both distance and velocity for snappy feel
+  // Swipe gesture — uses refs to avoid stale closures
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) => {
         return Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
       },
       onPanResponderMove: (_, gestureState) => {
-        // Clamp with resistance at edges
         const dx = gestureState.dx;
-        const atLeftEdge = siblingIndex === 0 && dx > 0;
-        const atRightEdge = siblingIndex === siblingCars.length - 1 && dx < 0;
+        const idx = siblingIndexRef.current;
+        const siblings = siblingCarsRef.current;
+        const atLeftEdge = idx === 0 && dx > 0;
+        const atRightEdge = idx === siblings.length - 1 && dx < 0;
         const dampened = atLeftEdge || atRightEdge ? dx * 0.25 : dx * 0.9;
         translateX.setValue(dampened);
       },
       onPanResponderRelease: (_, gestureState) => {
         const dx = gestureState.dx;
-        const vx = gestureState.vx; // horizontal velocity
+        const vx = gestureState.vx;
         const absDx = Math.abs(dx);
         const absVx = Math.abs(vx);
+        const idx = siblingIndexRef.current;
+        const siblings = siblingCarsRef.current;
 
-        // Fast swipe: velocity > 0.8 with at least 15px drag
         const isFastSwipe = absVx > 0.8 && absDx > 15;
-        // Normal swipe: need at least 50px drag
         const isSlowSwipe = absDx > 50;
 
-        if ((isFastSwipe || isSlowSwipe) && dx < 0 && siblingIndex < siblingCars.length - 1) {
-          // Swipe left = next
+        if ((isFastSwipe || isSlowSwipe) && dx < 0 && idx < siblings.length - 1) {
           const duration = isFastSwipe ? 120 : 180;
           Animated.timing(translateX, { toValue: -350, duration, useNativeDriver: true }).start(() => {
             translateX.setValue(0);
             goToNext();
           });
-        } else if ((isFastSwipe || isSlowSwipe) && dx > 0 && siblingIndex > 0) {
-          // Swipe right = prev
+        } else if ((isFastSwipe || isSlowSwipe) && dx > 0 && idx > 0) {
           const duration = isFastSwipe ? 120 : 180;
           Animated.timing(translateX, { toValue: 350, duration, useNativeDriver: true }).start(() => {
             translateX.setValue(0);
             goToPrev();
           });
         } else {
-          // Snap back with spring
           Animated.spring(translateX, {
             toValue: 0,
             useNativeDriver: true,
@@ -188,6 +205,30 @@ export default function CarDetailScreen() {
         setSoldPlatform(found.soldPlatform || '');
         setSoldNotes(found.soldNotes || '');
       }
+      // Load duplicate analysis
+      const analysis = await analyzeDuplicateDetails(found.name, found.model, found.year, found.color);
+      setDupeAnalysis(analysis);
+    }
+  };
+
+  const pickNewImage = async (useCamera: boolean) => {
+    try {
+      let pickerResult;
+      if (useCamera) {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Permission needed', 'Camera access is required.');
+          return;
+        }
+        pickerResult = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
+      } else {
+        pickerResult = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+      }
+      if (!pickerResult.canceled && pickerResult.assets[0]) {
+        setNewImageUri(pickerResult.assets[0].uri);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
     }
   };
 
@@ -213,9 +254,11 @@ export default function CarDetailScreen() {
       caseCode,
       toyNumber,
       variations: variationText.split(',').map((v) => v.trim()).filter(Boolean),
+      images: newImageUri ? [newImageUri, ...(car.images || [])] : car.images,
     };
     await updateCar(updated);
     setCar(updated);
+    setNewImageUri(null);
     setEditing(false);
     Alert.alert('Saved', 'Car details updated!');
   };
@@ -435,6 +478,35 @@ export default function CarDetailScreen() {
           <Image source={{ uri: car.images[0] }} style={styles.heroImage} resizeMode="cover" />
         )}
 
+        {/* Photo change in edit mode */}
+        {editing && (
+          <View style={styles.photoChangeSection}>
+            {newImageUri ? (
+              <View>
+                <Image source={{ uri: newImageUri }} style={styles.photoPreview} resizeMode="cover" />
+                <TouchableOpacity
+                  style={styles.photoRemoveBtn}
+                  onPress={() => setNewImageUri(null)}
+                >
+                  <MaterialIcons name="close" size={18} color="#fff" />
+                  <Text style={styles.photoRemoveBtnText}>Remove New Photo</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.photoChangeRow}>
+                <TouchableOpacity style={styles.photoChangeBtn} onPress={() => pickNewImage(true)}>
+                  <MaterialIcons name="camera-alt" size={20} color="#4da6ff" />
+                  <Text style={styles.photoChangeBtnText}>Camera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.photoChangeBtn} onPress={() => pickNewImage(false)}>
+                  <MaterialIcons name="photo-library" size={20} color="#4da6ff" />
+                  <Text style={styles.photoChangeBtnText}>Gallery</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Collection toggle */}
         <View style={styles.toggleRow}>
           <View style={styles.toggleLabelContainer}>
@@ -495,6 +567,16 @@ export default function CarDetailScreen() {
                 </View>
               )}
               <Text style={styles.inventoryAvg}>Avg Buy: ₹{stats.avgBuyPrice.toLocaleString('en-IN')}  ·  Avg Sell: ₹{stats.avgSellPrice.toLocaleString('en-IN')}  ·  COGS: ₹{stats.cogs.toLocaleString('en-IN')}</Text>
+              {/* Duplicate Count */}
+              {dupeAnalysis && dupeAnalysis.sameColorCount > 1 && (
+                <View style={styles.dupeCountRow}>
+                  <MaterialCommunityIcons name="content-copy" size={16} color="#FF9800" />
+                  <Text style={styles.dupeCountText}>
+                    {dupeAnalysis.sameColorCount}x same car in collection
+                    {dupeAnalysis.differentColorCount > 0 ? ` · ${dupeAnalysis.differentColorCount} color variant${dupeAnalysis.differentColorCount > 1 ? 's' : ''}` : ''}
+                  </Text>
+                </View>
+              )}
               {/* Add Purchase Button */}
               <TouchableOpacity style={styles.addPurchaseBtn} onPress={() => setShowPurchaseModal(true)}>
                 <MaterialIcons name="add-circle" size={18} color="#fff" />
@@ -624,6 +706,18 @@ export default function CarDetailScreen() {
                     <Text style={styles.tagText}>{car.series}</Text>
                   </View>
                 ) : null}
+                {dupeAnalysis && dupeAnalysis.sameColorCount > 1 && (
+                  <View style={[styles.tag, { backgroundColor: 'rgba(255, 152, 0, 0.2)' }]}>
+                    <MaterialCommunityIcons name="content-copy" size={10} color="#FF9800" />
+                    <Text style={[styles.tagText, { color: '#FF9800' }]}>x{dupeAnalysis.sameColorCount} duplicates</Text>
+                  </View>
+                )}
+                {dupeAnalysis && dupeAnalysis.differentColorCount > 0 && (
+                  <View style={[styles.tag, { backgroundColor: 'rgba(66, 165, 245, 0.15)' }]}>
+                    <MaterialIcons name="palette" size={10} color="#42A5F5" />
+                    <Text style={[styles.tagText, { color: '#42A5F5' }]}>+{dupeAnalysis.differentColorCount} color{dupeAnalysis.differentColorCount > 1 ? 's' : ''}</Text>
+                  </View>
+                )}
               </View>
 
               <View style={styles.detailGrid}>
@@ -1255,6 +1349,47 @@ const styles = StyleSheet.create({
     height: 220,
     marginBottom: 12,
   },
+
+  // Photo change
+  photoChangeSection: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  photoPreview: {
+    width: '100%',
+    height: 160,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#4da6ff',
+  },
+  photoRemoveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#e63946',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 8,
+  },
+  photoRemoveBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  photoChangeRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  photoChangeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#2a2a4a',
+  },
+  photoChangeBtnText: { color: '#4da6ff', fontSize: 14, fontWeight: '600' },
   toggleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1547,6 +1682,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#1565C0', borderRadius: 12, padding: 12,
   },
   addPurchaseBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  dupeCountRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(255, 152, 0, 0.12)', borderRadius: 10, padding: 10,
+    marginTop: 8,
+  },
+  dupeCountText: { fontSize: 12, color: '#FF9800', fontWeight: '600', flex: 1 },
 
   // Purchase / Sale History Cards
   historyCard: {

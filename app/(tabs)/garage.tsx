@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { getGarage, deleteCar, updateCar } from '../../src/services/storage';
+import { getGarage, deleteCar, updateCar, analyzeDuplicateDetails } from '../../src/services/storage';
 import { HotWheelCar, AllocationType } from '../../src/types';
 import FilterDropdown from '../../src/components/FilterDropdown';
 import PegHuntChecklist from '../../src/components/PegHuntChecklist';
@@ -37,10 +37,19 @@ export default function GarageScreen() {
   const [filterCaseCode, setFilterCaseCode] = useState('');
   const [filterAllocation, setFilterAllocation] = useState('');
   const [showPegHunt, setShowPegHunt] = useState(false);
+  const [dupeCounts, setDupeCounts] = useState<Record<string, { same: number; diff: number }>>({});
 
   const loadCars = async () => {
     const garage = await getGarage();
-    setCars(garage.sort((a, b) => b.dateAdded.localeCompare(a.dateAdded)));
+    const sorted = garage.sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
+    setCars(sorted);
+    // Compute duplicate counts
+    const counts: Record<string, { same: number; diff: number }> = {};
+    for (const car of sorted) {
+      const analysis = await analyzeDuplicateDetails(car.name, car.model, car.year, car.color);
+      counts[car.id] = { same: analysis.sameColorCount, diff: analysis.differentColorCount };
+    }
+    setDupeCounts(counts);
   };
 
   useFocusEffect(
@@ -221,6 +230,12 @@ export default function GarageScreen() {
         )}
         {renderRarityBadge(item.rarity)}
         {renderQtyBadge(item.quantity)}
+        {dupeCounts[item.id] && dupeCounts[item.id].same > 1 && (
+          <View style={[styles.qtyBadge, { backgroundColor: 'rgba(255, 152, 0, 0.3)' }]}>
+            <MaterialCommunityIcons name="content-copy" size={10} color="#FF9800" />
+            <Text style={[styles.qtyBadgeText, { color: '#FF9800' }]}>x{dupeCounts[item.id].same}</Text>
+          </View>
+        )}
       </View>
       <View style={styles.cardInfo}>
         <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
@@ -283,6 +298,12 @@ export default function GarageScreen() {
         )}
         {renderRarityBadge(item.rarity)}
         {renderQtyBadge(item.quantity)}
+        {dupeCounts[item.id] && dupeCounts[item.id].same > 1 && (
+          <View style={[styles.qtyBadge, { backgroundColor: 'rgba(255, 152, 0, 0.3)' }]}>
+            <MaterialCommunityIcons name="content-copy" size={10} color="#FF9800" />
+            <Text style={[styles.qtyBadgeText, { color: '#FF9800' }]}>x{dupeCounts[item.id].same}</Text>
+          </View>
+        )}
       </View>
       <View style={styles.gridInfo}>
         <Text style={styles.gridName} numberOfLines={1}>{item.name}</Text>
