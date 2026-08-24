@@ -14,7 +14,7 @@ import {
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
-import { getSettings, findDuplicateCars, addCar } from '../../src/services/storage';
+import { getSettings, findDuplicateCars, addCar, analyzeDuplicateDetails, DuplicateAnalysis } from '../../src/services/storage';
 import { scanCarFromImage, scanBulkFromImage, searchCarValue } from '../../src/services/nvidia';
 import { ScanResult, HotWheelCar, PurchaseEntry } from '../../src/types';
 import AdBanner from '../../src/components/AdBanner';
@@ -35,6 +35,7 @@ export default function ScanScreen() {
 
   // Duplicate detection
   const [duplicateCars, setDuplicateCars] = useState<HotWheelCar[]>([]);
+  const [duplicateAnalysis, setDuplicateAnalysis] = useState<DuplicateAnalysis | null>(null);
   const [showDuplicateAlert, setShowDuplicateAlert] = useState(false);
 
   // AI-identified results
@@ -206,12 +207,13 @@ export default function ScanScreen() {
     const r = getCurrentResult();
     if (!r) return;
     const car = buildCar(r);
-    // Duplicate detection
-    const dupes = await findDuplicateCars(car.name, car.model, car.year, car.color);
-    if (dupes.length > 0) {
-      setDuplicateCars(dupes);
+    // Smart duplicate detection
+    const analysis = await analyzeDuplicateDetails(car.name, car.model, car.year, car.color);
+    if (analysis.sameColorCount > 0 || analysis.differentColorCount > 0) {
+      const allDupes = [...analysis.exactDupes, ...analysis.colorVariants];
+      setDuplicateCars(allDupes);
+      setDuplicateAnalysis(analysis);
       setShowDuplicateAlert(true);
-      // Store the car to add for later
       setPendingCar({ car, toGarage });
       return;
     }
@@ -224,6 +226,7 @@ export default function ScanScreen() {
     await addCar(car);
     setShowDuplicateAlert(false);
     setDuplicateCars([]);
+    setDuplicateAnalysis(null);
     Alert.alert('Added!', `${car.name} (${car.year}) — ₹${car.priceINR} added to Garage!`, [
       { text: 'View Garage', onPress: () => router.push('/(tabs)/garage') },
       {
@@ -707,34 +710,83 @@ export default function ScanScreen() {
               </View>
 
               {/* ===== DUPLICATE ALERT MODAL ===== */}
-              {showDuplicateAlert && duplicateCars.length > 0 && (
+              {showDuplicateAlert && duplicateCars.length > 0 && duplicateAnalysis && (
                 <View style={styles.dupeOverlay}>
                   <View style={styles.dupeModal}>
                     <View style={styles.dupeHeader}>
                       <MaterialIcons name="content-copy" size={28} color="#FF9800" />
                       <Text style={styles.dupeTitle}>Duplicate Found!</Text>
                     </View>
-                    <Text style={styles.dupeDesc}>
-                      You already have {duplicateCars.length} of this car in your collection:
-                    </Text>
-                    {duplicateCars.map((dc) => (
-                      <View key={dc.id} style={styles.dupeCard}>
-                        <View style={styles.dupeCardLeft}>
-                          <Text style={styles.dupeName}>{dc.name}</Text>
-                          <Text style={styles.dupeInfo}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
-                          <Text style={styles.dupePrice}>Paid: ₹{(dc.buyPrice || 0).toLocaleString('en-IN')}</Text>
+                    {/* Exact same color duplicates */}
+                    {duplicateAnalysis.sameColorCount > 0 && (
+                      <>
+                        <View style={styles.dupeSectionRow}>
+                          <MaterialIcons name="repeat" size={16} color="#FF9800" />
+                          <Text style={styles.dupeSectionTitle}>Same color ({duplicateAnalysis.sameColorCount}x)</Text>
                         </View>
-                        <TouchableOpacity
-                          style={styles.dupeViewBtn}
-                          onPress={() => {
-                            setShowDuplicateAlert(false);
-                            router.push({ pathname: '/car/[id]', params: { id: dc.id, source: 'garage' } });
-                          }}
-                        >
-                          <Text style={styles.dupeViewBtnText}>View</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ))}
+                        {duplicateAnalysis.exactDupes.map((dc) => (
+                          <View key={dc.id} style={styles.dupeCard}>
+                            {dc.images && dc.images.length > 0 ? (
+                              <Image source={{ uri: dc.images[0] }} style={styles.dupeThumb} resizeMode="cover" />
+                            ) : (
+                              <View style={[styles.dupeThumb, styles.dupeThumbPlaceholder]}>
+                                <MaterialCommunityIcons name="car" size={20} color="#2a2a4a" />
+                              </View>
+                            )}
+                            <View style={styles.dupeCardLeft}>
+                              <Text style={styles.dupeName}>{dc.name}</Text>
+                              <Text style={styles.dupeInfo}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
+                              <Text style={styles.dupePrice}>Paid: ₹{(dc.buyPrice || 0).toLocaleString('en-IN')}</Text>
+                            </View>
+                            <TouchableOpacity
+                              style={styles.dupeViewBtn}
+                              onPress={() => {
+                                setShowDuplicateAlert(false);
+                                setDuplicateAnalysis(null);
+                                router.push({ pathname: '/car/[id]', params: { id: dc.id, source: 'garage' } });
+                              }}
+                            >
+                              <Text style={styles.dupeViewBtnText}>View</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </>
+                    )}
+                    {/* Different color variants */}
+                    {duplicateAnalysis.differentColorCount > 0 && (
+                      <>
+                        <View style={styles.dupeSectionRow}>
+                          <MaterialIcons name="palette" size={16} color="#42A5F5" />
+                          <Text style={[styles.dupeSectionTitle, { color: '#42A5F5' }]}>Different color ({duplicateAnalysis.differentColorCount}x)</Text>
+                        </View>
+                        {duplicateAnalysis.colorVariants.map((dc) => (
+                          <View key={dc.id} style={styles.dupeCard}>
+                            {dc.images && dc.images.length > 0 ? (
+                              <Image source={{ uri: dc.images[0] }} style={styles.dupeThumb} resizeMode="cover" />
+                            ) : (
+                              <View style={[styles.dupeThumb, styles.dupeThumbPlaceholder]}>
+                                <MaterialCommunityIcons name="car" size={20} color="#2a2a4a" />
+                              </View>
+                            )}
+                            <View style={styles.dupeCardLeft}>
+                              <Text style={styles.dupeName}>{dc.name}</Text>
+                              <Text style={styles.dupeInfo}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
+                              <Text style={styles.dupePrice}>Paid: ₹{(dc.buyPrice || 0).toLocaleString('en-IN')}</Text>
+                            </View>
+                            <TouchableOpacity
+                              style={[styles.dupeViewBtn, { backgroundColor: '#1565C0' }]}
+                              onPress={() => {
+                                setShowDuplicateAlert(false);
+                                setDuplicateAnalysis(null);
+                                router.push({ pathname: '/car/[id]', params: { id: dc.id, source: 'garage' } });
+                              }}
+                            >
+                              <Text style={styles.dupeViewBtnText}>View</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </>
+                    )}
                     <Text style={styles.dupeHint}>Add as a new purchase to track separate buy rates?</Text>
                     <View style={styles.dupeActions}>
                       <TouchableOpacity
@@ -751,6 +803,7 @@ export default function ScanScreen() {
                         onPress={() => {
                           setShowDuplicateAlert(false);
                           setDuplicateCars([]);
+                          setDuplicateAnalysis(null);
                           setPendingCar(null);
                         }}
                       >
@@ -972,9 +1025,20 @@ const styles = StyleSheet.create({
   dupeHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   dupeTitle: { fontSize: 20, fontWeight: '800', color: '#FF9800' },
   dupeDesc: { fontSize: 13, color: '#aaa', marginBottom: 12, lineHeight: 18 },
+  dupeSectionRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 8, marginBottom: 6,
+  },
+  dupeSectionTitle: { fontSize: 13, fontWeight: '700', color: '#FF9800' },
   dupeCard: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f0f23',
-    borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#333',
+    borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#333', gap: 10,
+  },
+  dupeThumb: {
+    width: 48, height: 48, borderRadius: 8, backgroundColor: '#12122a',
+  },
+  dupeThumbPlaceholder: {
+    justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#2a2a4a',
   },
   dupeCardLeft: { flex: 1 },
   dupeName: { fontSize: 14, fontWeight: '700', color: '#fff' },

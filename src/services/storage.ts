@@ -241,3 +241,58 @@ export async function buildPegHuntChecklist(caseCode: string): Promise<PegHuntIt
     images: c.images,
   }));
 }
+
+// ─── Smart Duplicate Detection ──────────────────────────────
+
+export interface DuplicateAnalysis {
+  exactDupes: HotWheelCar[];        // same name+model+year+color
+  colorVariants: HotWheelCar[];     // same name+model+year but different color
+  sameColorCount: number;           // how many of the exact same color
+  differentColorCount: number;      // how many different colors of same car
+  variantColors: string[];          // list of variant colors
+}
+
+/** Analyze duplicates with color-aware detail */
+export async function analyzeDuplicateDetails(
+  name: string,
+  model: string,
+  year: string,
+  color: string,
+): Promise<DuplicateAnalysis> {
+  const cars = await getAllCars();
+  const norm = (s: string) => (s || '').toLowerCase().trim();
+  const nName = norm(name);
+  const nModel = norm(model);
+  const nYear = norm(year);
+  const nColor = norm(color);
+  const nColorBase = nColor.split(' ')[0];
+
+  // Find all cars with same name+model+year (any color)
+  const sameModelCars = cars.filter((c) => {
+    return norm(c.name) === nName && norm(c.model) === nModel && norm(c.year) === nYear;
+  });
+
+  if (sameModelCars.length === 0) {
+    return { exactDupes: [], colorVariants: [], sameColorCount: 0, differentColorCount: 0, variantColors: [] };
+  }
+
+  const exactDupes = sameModelCars.filter((c) => {
+    const cColor = norm(c.color);
+    return cColor === nColor || (cColor.length > 0 && nColor.length > 0 && cColor.split(' ')[0] === nColorBase);
+  });
+
+  const colorVariants = sameModelCars.filter((c) => {
+    const cColor = norm(c.color);
+    return !(cColor === nColor || (cColor.length > 0 && nColor.length > 0 && cColor.split(' ')[0] === nColorBase));
+  });
+
+  const variantColors = colorVariants.map((c) => c.color).filter(Boolean);
+
+  return {
+    exactDupes,
+    colorVariants,
+    sameColorCount: exactDupes.length,
+    differentColorCount: colorVariants.length,
+    variantColors,
+  };
+}

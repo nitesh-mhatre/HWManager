@@ -12,7 +12,7 @@ import {
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { addCar, getSettings, findDuplicateCars } from '../../src/services/storage';
+import { addCar, getSettings, findDuplicateCars, analyzeDuplicateDetails } from '../../src/services/storage';
 import { HotWheelCar, PurchaseEntry } from '../../src/types';
 import { identifyHotWheel, researchHotWheelComplete } from '../../src/services/nvidia';
 import { ScanResult } from '../../src/types';
@@ -24,6 +24,11 @@ export default function AddScreen() {
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState('');
   const [researchData, setResearchData] = useState<any>(null);
+
+  // Duplicate detection modal
+  const [showDupeModal, setShowDupeModal] = useState(false);
+  const [dupeAnalysis, setDupeAnalysis] = useState<import('../../src/services/storage').DuplicateAnalysis | null>(null);
+  const [pendingCar, setPendingCar] = useState<HotWheelCar | null>(null);
 
   const pickImage = async (useCamera: boolean) => {
     try {
@@ -118,34 +123,26 @@ export default function AddScreen() {
     };
   };
 
+  const doAddCar = async (car: HotWheelCar) => {
+    await addCar(car);
+    setShowDupeModal(false);
+    setDupeAnalysis(null);
+    setPendingCar(null);
+    Alert.alert('Added!', `${car.name} added as a new purchase to Garage!`, [
+      { text: 'View Garage', onPress: () => router.push('/(tabs)/garage') },
+      { text: 'Done', onPress: reset },
+    ]);
+  };
+
   const addToGarage = async () => {
     const car = buildNewCar();
     if (!car) return;
-    // Duplicate detection
-    const dupes = await findDuplicateCars(car.name, car.model, car.year, car.color);
-    if (dupes.length > 0) {
-      const dupeNames = dupes.map(d => `${d.name} (${d.year}) — Qty: ${d.quantity || 1}, Paid: ₹${d.buyPrice}`).join('\n');
-      Alert.alert(
-        '⚠️ Duplicate Found!',
-        `You already have this car in your collection:\n\n${dupeNames}\n\nAdd as a new purchase?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Add as New Purchase',
-            onPress: async () => {
-              await addCar(car);
-              Alert.alert('Added!', `${car.name} added as a new purchase to Garage!`, [
-                { text: 'View Garage', onPress: () => router.push('/(tabs)/garage') },
-                { text: 'Done', onPress: reset },
-              ]);
-            },
-          },
-          {
-            text: 'View Existing',
-            onPress: () => router.push({ pathname: '/car/[id]', params: { id: dupes[0].id, source: 'garage' } }),
-          },
-        ]
-      );
+    // Smart duplicate detection
+    const analysis = await analyzeDuplicateDetails(car.name, car.model, car.year, car.color);
+    if (analysis.sameColorCount > 0 || analysis.differentColorCount > 0) {
+      setDupeAnalysis(analysis);
+      setPendingCar(car);
+      setShowDupeModal(true);
       return;
     }
     await addCar(car);
@@ -176,6 +173,7 @@ export default function AddScreen() {
   };
 
   return (
+    <>
     <ScrollView style={styles.container} contentContainerStyle={styles.scroll}>
       {/* Header */}
       <View style={styles.header}>
@@ -486,6 +484,111 @@ export default function AddScreen() {
         </>
       )}
     </ScrollView>
+
+    {/* ===== DUPLICATE ALERT MODAL ===== */}
+    {showDupeModal && dupeAnalysis && pendingCar && (
+      <View style={styles.dupeOverlay}>
+        <View style={styles.dupeModal}>
+          <View style={styles.dupeHeader}>
+            <MaterialIcons name="content-copy" size={28} color="#FF9800" />
+            <Text style={styles.dupeTitle}>Duplicate Found!</Text>
+          </View>
+          {/* Same color duplicates */}
+          {dupeAnalysis.sameColorCount > 0 && (
+            <>
+              <View style={styles.dupeSectionRow}>
+                <MaterialIcons name="repeat" size={16} color="#FF9800" />
+                <Text style={styles.dupeSectionTitle}>Same color ({dupeAnalysis.sameColorCount}x)</Text>
+              </View>
+              {dupeAnalysis.exactDupes.map((dc) => (
+                <View key={dc.id} style={styles.dupeCard}>
+                  {dc.images && dc.images.length > 0 ? (
+                    <Image source={{ uri: dc.images[0] }} style={styles.dupeThumb} resizeMode="cover" />
+                  ) : (
+                    <View style={[styles.dupeThumb, styles.dupeThumbPlaceholder]}>
+                      <MaterialCommunityIcons name="car" size={20} color="#2a2a4a" />
+                    </View>
+                  )}
+                  <View style={styles.dupeCardLeft}>
+                    <Text style={styles.dupeName}>{dc.name}</Text>
+                    <Text style={styles.dupeInfo}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
+                    <Text style={styles.dupePrice}>Paid: ₹{(dc.buyPrice || 0).toLocaleString('en-IN')}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.dupeViewBtn}
+                    onPress={() => {
+                      setShowDupeModal(false);
+                      setDupeAnalysis(null);
+                      setPendingCar(null);
+                      router.push({ pathname: '/car/[id]', params: { id: dc.id, source: 'garage' } });
+                    }}
+                  >
+                    <Text style={styles.dupeViewBtnText}>View</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </>
+          )}
+          {/* Different color variants */}
+          {dupeAnalysis.differentColorCount > 0 && (
+            <>
+              <View style={styles.dupeSectionRow}>
+                <MaterialIcons name="palette" size={16} color="#42A5F5" />
+                <Text style={[styles.dupeSectionTitle, { color: '#42A5F5' }]}>Different color ({dupeAnalysis.differentColorCount}x)</Text>
+              </View>
+              {dupeAnalysis.colorVariants.map((dc) => (
+                <View key={dc.id} style={styles.dupeCard}>
+                  {dc.images && dc.images.length > 0 ? (
+                    <Image source={{ uri: dc.images[0] }} style={styles.dupeThumb} resizeMode="cover" />
+                  ) : (
+                    <View style={[styles.dupeThumb, styles.dupeThumbPlaceholder]}>
+                      <MaterialCommunityIcons name="car" size={20} color="#2a2a4a" />
+                    </View>
+                  )}
+                  <View style={styles.dupeCardLeft}>
+                    <Text style={styles.dupeName}>{dc.name}</Text>
+                    <Text style={styles.dupeInfo}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
+                    <Text style={styles.dupePrice}>Paid: ₹{(dc.buyPrice || 0).toLocaleString('en-IN')}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.dupeViewBtn, { backgroundColor: '#1565C0' }]}
+                    onPress={() => {
+                      setShowDupeModal(false);
+                      setDupeAnalysis(null);
+                      setPendingCar(null);
+                      router.push({ pathname: '/car/[id]', params: { id: dc.id, source: 'garage' } });
+                    }}
+                  >
+                    <Text style={styles.dupeViewBtnText}>View</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </>
+          )}
+          <Text style={styles.dupeHint}>Add as a new purchase to track separate buy rates?</Text>
+          <View style={styles.dupeActions}>
+            <TouchableOpacity
+              style={styles.dupeAddBtn}
+              onPress={() => doAddCar(pendingCar)}
+            >
+              <MaterialIcons name="add-circle" size={18} color="#fff" />
+              <Text style={styles.dupeAddBtnText}>Add as New Purchase</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.dupeCancelBtn}
+              onPress={() => {
+                setShowDupeModal(false);
+                setDupeAnalysis(null);
+                setPendingCar(null);
+              }}
+            >
+              <Text style={styles.dupeCancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    )}
+    </>
   );
 }
 
@@ -659,4 +762,51 @@ const styles = StyleSheet.create({
     fontSize: 10, color: '#555', marginTop: 8,
     textAlign: 'right', fontStyle: 'italic',
   },
+
+  // Duplicate Alert Modal
+  dupeOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center',
+    zIndex: 100, padding: 20,
+  },
+  dupeModal: {
+    backgroundColor: '#1a1a2e', borderRadius: 18, padding: 20,
+    width: '100%', borderWidth: 2, borderColor: '#FF9800', maxHeight: '80%',
+  },
+  dupeHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  dupeTitle: { fontSize: 20, fontWeight: '800', color: '#FF9800' },
+  dupeSectionRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 8, marginBottom: 6,
+  },
+  dupeSectionTitle: { fontSize: 13, fontWeight: '700', color: '#FF9800' },
+  dupeCard: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f0f23',
+    borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#333', gap: 10,
+  },
+  dupeThumb: {
+    width: 48, height: 48, borderRadius: 8, backgroundColor: '#12122a',
+  },
+  dupeThumbPlaceholder: {
+    justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#2a2a4a',
+  },
+  dupeCardLeft: { flex: 1 },
+  dupeName: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  dupeInfo: { fontSize: 11, color: '#888', marginTop: 2 },
+  dupePrice: { fontSize: 12, color: '#4caf50', fontWeight: '600', marginTop: 2 },
+  dupeViewBtn: {
+    backgroundColor: '#4da6ff', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
+  },
+  dupeViewBtnText: { fontSize: 12, color: '#fff', fontWeight: '700' },
+  dupeHint: { fontSize: 12, color: '#FF9800', marginTop: 8, marginBottom: 12, textAlign: 'center' },
+  dupeActions: { gap: 8 },
+  dupeAddBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#e65100', borderRadius: 12, padding: 14,
+  },
+  dupeAddBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  dupeCancelBtn: {
+    alignItems: 'center', padding: 12, borderRadius: 12,
+  },
+  dupeCancelBtnText: { color: '#888', fontSize: 14, fontWeight: '600' },
 });

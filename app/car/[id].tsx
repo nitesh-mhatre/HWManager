@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,10 +11,12 @@ import {
   Switch,
   KeyboardAvoidingView,
   Platform,
+  PanResponder,
+  Animated,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { getAllCars, updateCar, deleteCar, addPurchaseToCar, addSaleToCar, computeCarStats } from '../../src/services/storage';
+import { getAllCars, updateCar, deleteCar, addPurchaseToCar, addSaleToCar, computeCarStats, getGarage, getWishlist } from '../../src/services/storage';
 import { HotWheelCar, PurchaseEntry, SaleEntry } from '../../src/types';
 import { searchCarValue } from '../../src/services/nvidia';
 import { getSettings } from '../../src/services/storage';
@@ -26,6 +28,9 @@ export default function CarDetailScreen() {
   const [car, setCar] = useState<HotWheelCar | null>(null);
   const [editing, setEditing] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [siblingCars, setSiblingCars] = useState<HotWheelCar[]>([]);
+  const [siblingIndex, setSiblingIndex] = useState(0);
+  const translateX = useRef(new Animated.Value(0)).current;
 
   // Editable fields
   const [name, setName] = useState('');
@@ -75,7 +80,85 @@ export default function CarDetailScreen() {
 
   useEffect(() => {
     loadCar();
+    loadSiblings();
   }, [id]);
+
+  const loadSiblings = async () => {
+    const list = source === 'wishlist' ? await getWishlist() : await getGarage();
+    const sorted = list.sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
+    setSiblingCars(sorted);
+    const idx = sorted.findIndex((c) => c.id === id);
+    setSiblingIndex(idx >= 0 ? idx : 0);
+  };
+
+  const navigateToCar = (carId: string) => {
+    router.replace({ pathname: '/car/[id]', params: { id: carId, source: source || 'garage' } });
+  };
+
+  const goToPrev = () => {
+    if (siblingIndex > 0) {
+      navigateToCar(siblingCars[siblingIndex - 1].id);
+    }
+  };
+
+  const goToNext = () => {
+    if (siblingIndex < siblingCars.length - 1) {
+      navigateToCar(siblingCars[siblingIndex + 1].id);
+    }
+  };
+
+  // Swipe gesture — uses both distance and velocity for snappy feel
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        // Clamp with resistance at edges
+        const dx = gestureState.dx;
+        const atLeftEdge = siblingIndex === 0 && dx > 0;
+        const atRightEdge = siblingIndex === siblingCars.length - 1 && dx < 0;
+        const dampened = atLeftEdge || atRightEdge ? dx * 0.25 : dx * 0.9;
+        translateX.setValue(dampened);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const dx = gestureState.dx;
+        const vx = gestureState.vx; // horizontal velocity
+        const absDx = Math.abs(dx);
+        const absVx = Math.abs(vx);
+
+        // Fast swipe: velocity > 0.8 with at least 15px drag
+        const isFastSwipe = absVx > 0.8 && absDx > 15;
+        // Normal swipe: need at least 50px drag
+        const isSlowSwipe = absDx > 50;
+
+        if ((isFastSwipe || isSlowSwipe) && dx < 0 && siblingIndex < siblingCars.length - 1) {
+          // Swipe left = next
+          const duration = isFastSwipe ? 120 : 180;
+          Animated.timing(translateX, { toValue: -350, duration, useNativeDriver: true }).start(() => {
+            translateX.setValue(0);
+            goToNext();
+          });
+        } else if ((isFastSwipe || isSlowSwipe) && dx > 0 && siblingIndex > 0) {
+          // Swipe right = prev
+          const duration = isFastSwipe ? 120 : 180;
+          Animated.timing(translateX, { toValue: 350, duration, useNativeDriver: true }).start(() => {
+            translateX.setValue(0);
+            goToPrev();
+          });
+        } else {
+          // Snap back with spring
+          Animated.spring(translateX, {
+            toValue: 0,
+            useNativeDriver: true,
+            velocity: vx * 0.5,
+            tension: 300,
+            friction: 12,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   const loadCar = async () => {
     const cars = await getAllCars();
@@ -297,6 +380,10 @@ export default function CarDetailScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <Animated.View
+        style={[styles.container, { transform: [{ translateX }] }]}
+        {...panResponder.panHandlers}
+      >
       <ScrollView contentContainerStyle={styles.scroll}>
         {/* Header */}
         <View style={styles.header}>
@@ -316,6 +403,32 @@ export default function CarDetailScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Swipe Navigation Bar */}
+        {siblingCars.length > 1 && (
+          <View style={styles.swipeNavBar}>
+            <TouchableOpacity
+              style={[styles.swipeNavBtn, siblingIndex === 0 && styles.swipeNavBtnDisabled]}
+              onPress={goToPrev}
+              disabled={siblingIndex === 0}
+            >
+              <MaterialIcons name="chevron-left" size={22} color={siblingIndex === 0 ? '#333' : '#4da6ff'} />
+              <Text style={[styles.swipeNavBtnText, siblingIndex === 0 && styles.swipeNavBtnTextDisabled]} numberOfLines={1}>Prev</Text>
+            </TouchableOpacity>
+            <View style={styles.swipeNavCenter}>
+              <MaterialIcons name="swap-horiz" size={14} color="#555" />
+              <Text style={styles.swipeNavPosition}>{siblingIndex + 1} / {siblingCars.length}</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.swipeNavBtn, siblingIndex === siblingCars.length - 1 && styles.swipeNavBtnDisabled]}
+              onPress={goToNext}
+              disabled={siblingIndex === siblingCars.length - 1}
+            >
+              <Text style={[styles.swipeNavBtnText, siblingIndex === siblingCars.length - 1 && styles.swipeNavBtnTextDisabled]} numberOfLines={1}>Next</Text>
+              <MaterialIcons name="chevron-right" size={22} color={siblingIndex === siblingCars.length - 1 ? '#333' : '#4da6ff'} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Image */}
         {car.images.length > 0 && (
@@ -1027,6 +1140,7 @@ export default function CarDetailScreen() {
           </Text>
         </View>
       </ScrollView>
+      </Animated.View>
     </KeyboardAvoidingView>
   );
 }
@@ -1502,4 +1616,48 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4,
   },
   variationTagText: { fontSize: 11, color: '#FF9800', fontWeight: '600' },
+
+  // Swipe Navigation Bar
+  swipeNavBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: 16,
+    marginBottom: 10,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: '#2a2a4a',
+  },
+  swipeNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  swipeNavBtnDisabled: {
+    opacity: 0.3,
+  },
+  swipeNavBtnText: {
+    fontSize: 12,
+    color: '#4da6ff',
+    fontWeight: '600',
+  },
+  swipeNavBtnTextDisabled: {
+    color: '#333',
+  },
+  swipeNavCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  swipeNavPosition: {
+    fontSize: 12,
+    color: '#888',
+    fontWeight: '700',
+  },
 });
