@@ -12,13 +12,18 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { getSettings, saveSettings, getAllCars } from '../../src/services/storage';
-import { fetchModels } from '../../src/services/nvidia';
-import { NvidiaSettings, HotWheelCar } from '../../src/types';
+import { getSettings, saveSettings, getAllCars, createBackupFile, restoreBackup, setManualMode, isManualMode } from '../../src/services/storage';
+import { fetchModels, PROVIDER_DEFAULTS } from '../../src/services/nvidia';
+import { NvidiaSettings, HotWheelCar, ApiProvider } from '../../src/types';
+import { File } from 'expo-file-system';
+import { useTheme } from '../../src/context/ThemeContext';
+import { hapticLight } from '../../src/services/haptics';
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { mode, colors, toggleTheme, isDark } = useTheme();
   const [settings, setSettings] = useState<NvidiaSettings | null>(null);
+  const [provider, setProvider] = useState<ApiProvider>('nvidia');
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('https://integrate.api.nvidia.com/v1');
   const [models, setModels] = useState<string[]>([]);
@@ -26,22 +31,48 @@ export default function SettingsScreen() {
   const [loadingModels, setLoadingModels] = useState(false);
   const [saving, setSaving] = useState(false);
   const [stats, setStats] = useState({ total: 0, garage: 0, wishlist: 0, totalValue: 0 });
+  const [manualMode, setManualModeState] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+  const [restoring, setRestoring] = useState(false);
 
   useEffect(() => {
     loadSettings();
     loadStats();
+    loadManualMode();
   }, []);
+
+  const loadManualMode = async () => {
+    const isManual = await isManualMode();
+    setManualModeState(isManual);
+  };
 
   const loadSettings = async () => {
     const s = await getSettings();
     if (s) {
       setSettings(s);
+      setProvider(s.provider || 'nvidia');
       setApiKey(s.apiKey);
       setBaseUrl(s.baseUrl);
       setSelectedModel(s.model);
       setLoadingModels(true);
       try {
-        const m = await fetchModels(s.apiKey, s.baseUrl);
+        const m = await fetchModels(s.apiKey, s.baseUrl, s.provider || 'nvidia');
+        setModels(m);
+      } catch {}
+      setLoadingModels(false);
+    }
+  };
+
+  const handleProviderChange = async (p: ApiProvider) => {
+    setProvider(p);
+    const defaults = PROVIDER_DEFAULTS[p];
+    setBaseUrl(defaults.baseUrl);
+    setSelectedModel('');
+    setModels([]);
+    if (apiKey.trim()) {
+      setLoadingModels(true);
+      try {
+        const m = await fetchModels(apiKey.trim(), defaults.baseUrl, p);
         setModels(m);
       } catch {}
       setLoadingModels(false);
@@ -65,7 +96,7 @@ export default function SettingsScreen() {
     if (!apiKey.trim()) return;
     setLoadingModels(true);
     try {
-      const m = await fetchModels(apiKey.trim(), baseUrl.trim());
+      const m = await fetchModels(apiKey.trim(), baseUrl.trim(), provider);
       setModels(m);
     } catch (e: any) {
       Alert.alert('Error', `Failed to fetch models: ${e.message}`);
@@ -84,7 +115,10 @@ export default function SettingsScreen() {
         apiKey: apiKey.trim(),
         baseUrl: baseUrl.trim(),
         model: selectedModel,
+        provider,
       });
+      await setManualMode(false);
+      setManualModeState(false);
       Alert.alert('Saved', 'Settings updated successfully!');
     } catch (e: any) {
       Alert.alert('Error', e.message);
@@ -118,17 +152,90 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleBackup = async () => {
+    setBackingUp(true);
+    try {
+      const fileUri = await createBackupFile();
+      const Share = await import('expo-sharing');
+      await Share.shareAsync(fileUri, {
+        mimeType: 'application/json',
+        dialogTitle: 'Backup Hot Wheels Collection',
+      });
+      Alert.alert('Backup Created', 'Your backup has been shared. Save it to your desired location.');
+    } catch (e: any) {
+      Alert.alert('Backup Failed', e.message);
+    } finally {
+      setBackingUp(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    Alert.alert(
+      'Restore Backup',
+      'This will replace your current collection with the backup data. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          onPress: async () => {
+            setRestoring(true);
+            try {
+              const result = await File.pickFileAsync({
+                mimeTypes: ['application/json'],
+              });
+
+              if (result.canceled || !result.result) {
+                setRestoring(false);
+                return;
+              }
+
+              const pickedFile = result.result;
+              const json = await pickedFile.text();
+              const backup = JSON.parse(json);
+
+              if (!backup.version || !backup.cars) {
+                Alert.alert('Invalid Backup', 'This file does not appear to be a valid Hot Wheels backup.');
+                setRestoring(false);
+                return;
+              }
+
+              const { carsImported, imagesRestored } = await restoreBackup(backup);
+              await loadStats();
+              Alert.alert(
+                'Restore Complete!',
+                `Imported ${carsImported} cars and restored ${imagesRestored} images.`
+              );
+            } catch (e: any) {
+              Alert.alert('Restore Failed', e.message);
+            } finally {
+              setRestoring(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const toggleManualMode = async () => {
+    const newValue = !manualMode;
+    await setManualMode(newValue);
+    setManualModeState(newValue);
+    if (newValue) {
+      Alert.alert('Manual Mode', 'App is now in Manual Mode. You can use all features without an API key. AI scanning features will not work until you set up an API key.');
+    }
+  };
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scroll}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.scroll}>
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <MaterialIcons name="settings" size={28} color="#e63946" />
-          <Text style={styles.headerTitle}>Settings</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
         </View>
       </View>
 
       {/* Stats */}
-      <View style={styles.statsCard}>
+      <View style={[styles.statsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.statItem}>
           <MaterialCommunityIcons name="car" size={20} color="#e63946" />
           <Text style={styles.statValue}>{stats.garage}</Text>
@@ -148,31 +255,104 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {/* API Configuration */}
-      <View style={styles.section}>
+      {/* Theme Toggle */}
+      <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={styles.sectionHeader}>
+          <MaterialIcons name="brightness-6" size={18} color={colors.info} />
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Appearance</Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.menuItem, { borderBottomColor: colors.border }]}
+          onPress={() => { hapticLight(); toggleTheme(); }}
+        >
+          <MaterialIcons name={isDark ? 'dark-mode' : 'light-mode'} size={24} color={isDark ? '#FFD700' : '#FF9800'} />
+          <View style={styles.menuInfo}>
+            <Text style={[styles.menuLabel, { color: colors.text }]}>{isDark ? 'Dark Mode' : 'Light Mode'}</Text>
+            <Text style={[styles.menuDesc, { color: colors.textMuted }]}>Currently using {isDark ? 'dark' : 'light'} theme</Text>
+          </View>
+          <View style={[styles.themeToggle, isDark && styles.themeToggleActive]}>
+            <View style={[styles.themeToggleDot, isDark && styles.themeToggleDotActive]} />
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      {/* Manual Mode */}
+      <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={styles.sectionHeader}>
+          <MaterialIcons name="edit" size={18} color={colors.info} />
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>App Mode</Text>
+        </View>
+        <TouchableOpacity style={styles.menuItem} onPress={toggleManualMode}>
+          <MaterialIcons name={manualMode ? 'toggle-on' : 'toggle-off'} size={28} color={manualMode ? '#4caf50' : '#555'} />
+          <View style={styles.menuInfo}>
+            <Text style={[styles.menuLabel, { color: colors.text }]}>Manual Mode</Text>
+            <Text style={[styles.menuDesc, { color: colors.textMuted }]}>
+              {manualMode ? 'ON — Using app without API key' : 'OFF — API features available'}
+            </Text>
+          </View>
+        </TouchableOpacity>
+        {manualMode && (
+          <View style={[styles.infoCallout, { backgroundColor: colors.infoBg }]}>
+            <MaterialIcons name="info-outline" size={14} color={colors.info} />
+            <Text style={[styles.infoCalloutText, { color: colors.info }]}>
+              AI scanning is disabled. Add cars via Manual Entry. Set up API key to enable AI features.
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {/* API Support */}
+      <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.sectionHeader}>
           <MaterialIcons name="vpn-key" size={18} color="#4da6ff" />
-          <Text style={styles.sectionTitle}>NVIDIA API Configuration</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>API Support</Text>
         </View>
 
-        <Text style={styles.label}>API Base URL</Text>
+        {/* Provider Selector */}
+        <Text style={[styles.label, { color: colors.textSecondary }]}>Provider</Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+          {([
+            { key: 'nvidia' as const, label: 'NVIDIA', icon: 'memory', desc: 'Free tier available' },
+            { key: 'openai' as const, label: 'OpenAI', icon: 'smart_toy', desc: 'GPT-4o & Vision' },
+          ]).map((p) => (
+            <TouchableOpacity
+              key={p.key}
+              style={[
+                { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 10, borderWidth: 1.5 },
+                provider === p.key
+                  ? { backgroundColor: colors.dangerBg, borderColor: colors.primary }
+                  : { backgroundColor: colors.inputBg, borderColor: colors.inputBorder },
+              ]}
+              onPress={() => handleProviderChange(p.key)}
+            >
+              <MaterialIcons name={p.icon as any} size={20} color={provider === p.key ? colors.primary : colors.textMuted} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: provider === p.key ? colors.text : colors.textSecondary }}>{p.label}</Text>
+                <Text style={{ fontSize: 10, color: colors.textMuted }}>{p.desc}</Text>
+              </View>
+              {provider === p.key && <MaterialIcons name="check-circle" size={18} color={colors.primary} />}
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={[styles.label, { color: colors.textSecondary }]}>API Base URL</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.text }]}
           value={baseUrl}
           onChangeText={setBaseUrl}
-          placeholder="https://integrate.api.nvidia.com/v1"
-          placeholderTextColor="#555"
+          placeholder={provider === 'openai' ? 'https://api.openai.com/v1' : 'https://integrate.api.nvidia.com/v1'}
+          placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
         />
 
-        <Text style={styles.label}>API Key</Text>
+        <Text style={[styles.label, { color: colors.textSecondary }]}>API Key</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.text }]}
           value={apiKey}
           onChangeText={setApiKey}
-          placeholder="nvapi-xxxx"
-          placeholderTextColor="#555"
+          placeholder={provider === 'openai' ? 'sk-xxxx' : 'nvapi-xxxx'}
+          placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry
@@ -195,21 +375,22 @@ export default function SettingsScreen() {
 
         {models.length > 0 && (
           <>
-            <Text style={[styles.label, { marginTop: 12 }]}>Selected Model</Text>
+            <Text style={[styles.label, { marginTop: 12, color: colors.textSecondary }]}>Selected Model</Text>
             <ScrollView style={styles.modelList} nestedScrollEnabled>
               {models.map((m) => (
                 <TouchableOpacity
                   key={m}
                   style={[
                     styles.modelItem,
-                    selectedModel === m && styles.modelItemActive,
+                    { backgroundColor: colors.inputBg, borderColor: colors.inputBorder },
+                    selectedModel === m && { borderColor: colors.primary, backgroundColor: colors.dangerBg },
                   ]}
                   onPress={() => setSelectedModel(m)}
                 >
                   <View style={styles.radio}>
                     <View style={[styles.radioInner, selectedModel === m && styles.radioActive]} />
                   </View>
-                  <Text style={[styles.modelName, selectedModel === m && styles.modelNameActive]} numberOfLines={1}>
+                  <Text style={[styles.modelName, { color: colors.textMuted }, selectedModel === m && { color: colors.text, fontWeight: '600' }]} numberOfLines={1}>
                     {m}
                   </Text>
                 </TouchableOpacity>
@@ -234,18 +415,59 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Backup & Restore */}
+      <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={styles.sectionHeader}>
+          <MaterialIcons name="backup" size={18} color="#4caf50" />
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Backup & Restore</Text>
+        </View>
+        <Text style={{ fontSize: 12, color: colors.textMuted, marginBottom: 12, lineHeight: 18 }}>
+          Create a full backup of your collection including all images. You can restore it on another phone or after reinstalling.
+        </Text>
+
+        <TouchableOpacity
+          style={[styles.backupButton, backingUp && { opacity: 0.4 }]}
+          onPress={handleBackup}
+          disabled={backingUp}
+        >
+          {backingUp ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <MaterialIcons name="cloud-upload" size={20} color="#fff" />
+              <Text style={styles.backupButtonText}>Create Backup</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.restoreButton, restoring && { opacity: 0.4 }]}
+          onPress={handleRestore}
+          disabled={restoring}
+        >
+          {restoring ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <MaterialIcons name="cloud-download" size={20} color="#fff" />
+              <Text style={styles.restoreButtonText}>Restore from Backup</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+
       {/* Data Management */}
-      <View style={styles.section}>
+      <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.sectionHeader}>
           <MaterialIcons name="storage" size={18} color="#4da6ff" />
-          <Text style={styles.sectionTitle}>Data Management</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Data Management</Text>
         </View>
 
-        <TouchableOpacity style={styles.menuItem} onPress={handleExportData}>
+        <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.border }]} onPress={handleExportData}>
           <MaterialIcons name="file-upload" size={20} color="#888" />
           <View style={styles.menuInfo}>
-            <Text style={styles.menuLabel}>Export Collection</Text>
-            <Text style={styles.menuDesc}>{stats.total} cars total</Text>
+            <Text style={[styles.menuLabel, { color: colors.text }]}>Export Collection</Text>
+            <Text style={[styles.menuDesc, { color: colors.textMuted }]}>{stats.total} cars total</Text>
           </View>
           <MaterialIcons name="chevron-right" size={20} color="#555" />
         </TouchableOpacity>
@@ -253,20 +475,20 @@ export default function SettingsScreen() {
         <TouchableOpacity style={styles.menuItem} onPress={handleClearAllData}>
           <MaterialIcons name="delete-forever" size={20} color="#e63946" />
           <View style={styles.menuInfo}>
-            <Text style={[styles.menuLabel, { color: '#e63946' }]}>Clear All Data</Text>
-            <Text style={styles.menuDesc}>Delete all cars and settings</Text>
+            <Text style={[styles.menuLabel, { color: colors.danger }]}>Clear All Data</Text>
+            <Text style={[styles.menuDesc, { color: colors.textMuted }]}>Delete all cars and settings</Text>
           </View>
           <MaterialIcons name="chevron-right" size={20} color="#555" />
         </TouchableOpacity>
       </View>
 
       {/* Export */}
-      <View style={styles.section}>
+      <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.sectionHeader}>
           <MaterialIcons name="file-download" size={18} color="#4caf50" />
-          <Text style={styles.sectionTitle}>Export Collection</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Export Collection</Text>
         </View>
-        <Text style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>Download your collection data for backup or sharing.</Text>
+        <Text style={{ fontSize: 12, color: colors.textMuted, marginBottom: 12 }}>Download your collection data for backup or sharing.</Text>
         <TouchableOpacity style={styles.saveButton} onPress={async () => {
           try {
             const { generateCSV, getAllCars } = require('../../src/services/storage');
@@ -312,15 +534,15 @@ export default function SettingsScreen() {
       </View>
 
       {/* About */}
-      <View style={styles.section}>
+      <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.sectionHeader}>
           <MaterialIcons name="info" size={18} color="#4da6ff" />
-          <Text style={styles.sectionTitle}>About</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>About</Text>
         </View>
-        <Text style={styles.aboutText}>
+        <Text style={[styles.aboutText, { color: colors.textMuted }]}>
           Hot Wheels Recorder v1.0{'\n\n'}
           Track your Hot Wheels collection, scan cars with AI, and monitor market values in INR.{'\n\n'}
-          Powered by NVIDIA free-tier AI APIs for car identification and value estimation.
+          Supports NVIDIA and OpenAI APIs for car identification and value estimation.
         </Text>
       </View>
     </ScrollView>
@@ -436,6 +658,27 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   saveButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  backupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1b5e20',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+  },
+  backupButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  restoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1565C0',
+    borderRadius: 12,
+    padding: 14,
+  },
+  restoreButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -448,4 +691,30 @@ const styles = StyleSheet.create({
   menuLabel: { fontSize: 14, fontWeight: '600', color: '#fff' },
   menuDesc: { fontSize: 12, color: '#666', marginTop: 1 },
   aboutText: { fontSize: 13, color: '#888', lineHeight: 20 },
+  themeToggle: {
+    width: 50, height: 28, borderRadius: 14, backgroundColor: '#333',
+    justifyContent: 'center', paddingHorizontal: 3,
+  },
+  themeToggleActive: { backgroundColor: '#e63946' },
+  themeToggleDot: {
+    width: 22, height: 22, borderRadius: 11, backgroundColor: '#888',
+  },
+  themeToggleDotActive: {
+    alignSelf: 'flex-end', backgroundColor: '#fff',
+  },
+  infoCallout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(77, 166, 255, 0.1)',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 8,
+  },
+  infoCalloutText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#4da6ff',
+    lineHeight: 17,
+  },
 });

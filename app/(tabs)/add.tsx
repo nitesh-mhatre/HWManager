@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,28 +7,84 @@ import {
   ScrollView,
   Alert,
   Image,
-  ActivityIndicator,
+  TextInput,
+  Platform,
+  RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { addCar, getSettings, findDuplicateCars, analyzeDuplicateDetails } from '../../src/services/storage';
-import { HotWheelCar, PurchaseEntry } from '../../src/types';
-import { identifyHotWheel, researchHotWheelComplete } from '../../src/services/nvidia';
-import { ScanResult } from '../../src/types';
+import { addCar, getSettings, analyzeDuplicateDetails, isManualMode, getAllCars } from '../../src/services/storage';
+import { HotWheelCar } from '../../src/types';
+import { useTheme } from '../../src/context/ThemeContext';
+import { getAppStyles } from '../../src/styles/themeStyles';
+
+type InputMode = 'choose' | 'manual';
 
 export default function AddScreen() {
   const router = useRouter();
-  const [phase, setPhase] = useState<'pick' | 'analyzing' | 'result'>('pick');
+  const { colors, isDark } = useTheme();
+  const appStyles = getAppStyles(colors);
+  const [inputMode, setInputMode] = useState<InputMode>('choose');
   const [imageUri, setImageUri] = useState<string | null>(null);
-  const [result, setResult] = useState<ScanResult | null>(null);
-  const [error, setError] = useState('');
-  const [researchData, setResearchData] = useState<any>(null);
+  const [appIsManual, setAppIsManual] = useState(false);
 
   // Duplicate detection modal
   const [showDupeModal, setShowDupeModal] = useState(false);
-  const [dupeAnalysis, setDupeAnalysis] = useState<import('../../src/services/storage').DuplicateAnalysis | null>(null);
-  const [pendingCar, setPendingCar] = useState<HotWheelCar | null>(null);
+  const [dupeAnalysis, setDupeAnalysis] = useState<import('../../src/services/storage').DuplicateAnalysis | null>(null);  const [pendingCar, setPendingCar] = useState<HotWheelCar | null>(null);
+  const [recentCars, setRecentCars] = useState<HotWheelCar[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadRecent = useCallback(async () => {
+    const all = await getAllCars();
+    setRecentCars(all.slice(-5).reverse());
+  }, []);
+
+  useEffect(() => {
+    loadRecent();
+  }, []);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadRecent();
+    setRefreshing(false);
+  }, [loadRecent]);
+
+
+  // Manual entry fields
+  const [manualName, setManualName] = useState('');
+  const [manualYear, setManualYear] = useState('');
+  const [manualSeries, setManualSeries] = useState('');
+  const [manualColor, setManualColor] = useState('');
+  const [manualModel, setManualModel] = useState('');
+  const [manualScale, setManualScale] = useState('1:64');
+  const [manualRarity, setManualRarity] = useState('');
+  const [manualCondition, setManualCondition] = useState('Mint');
+  const [manualBuyPrice, setManualBuyPrice] = useState('');
+  const [manualMarketPrice, setManualMarketPrice] = useState('');
+  const [manualManufacturer, setManualManufacturer] = useState('Mattel');
+  const [manualTampos, setManualTampos] = useState('');
+  const [manualWheelType, setManualWheelType] = useState('');
+  const [manualBaseColor, setManualBaseColor] = useState('');
+  const [manualBarcode, setManualBarcode] = useState('');
+  const [manualRemarks, setManualRemarks] = useState('');
+  const [manualCaseCode, setManualCaseCode] = useState('');
+  const [manualToyNumber, setManualToyNumber] = useState('');
+  const [manualPackaging, setManualPackaging] = useState('');
+  const [manualCardCondition, setManualCardCondition] = useState('');
+  const [manualAllocation, setManualAllocation] = useState<'personal' | 'trade' | 'forSale'>('personal');
+  const [manualStorageLocation, setManualStorageLocation] = useState('');
+  const [manualAddTo, setManualAddTo] = useState<'garage' | 'wishlist'>('garage');
+
+  useEffect(() => {
+    (async () => {
+      const manual = await isManualMode();
+      setAppIsManual(manual);
+      if (manual) {
+        setInputMode('manual');
+      }
+    })();
+  }, []);
 
   const pickImage = async (useCamera: boolean) => {
     try {
@@ -45,66 +101,41 @@ export default function AddScreen() {
       }
       if (!pickerResult.canceled && pickerResult.assets[0]) {
         setImageUri(pickerResult.assets[0].uri);
-        analyzeImage(pickerResult.assets[0].uri);
       }
     } catch (e: any) {
       Alert.alert('Error', e.message);
     }
   };
 
-  const analyzeImage = async (uri: string) => {
-    setPhase('analyzing');
-    setError('');
-    try {
-      const settings = await getSettings();
-      if (!settings) {
-        Alert.alert('Not configured', 'Please set up your API key in Settings first.', [
-          { text: 'Go to Settings', onPress: () => router.push('/(tabs)/settings') },
-        ]);
-        setPhase('pick');
-        return;
-      }
-      const { result: scanResult, research } = await researchHotWheelComplete(settings, uri);
-      setResult(scanResult);
-      setResearchData(research);
-      setPhase('result');
-    } catch (e: any) {
-      setError(e.message);
-      setPhase('result');
-      setResult(null);
-    }
-  };
-
-  const buildNewCar = (): HotWheelCar | null => {
-    if (!result) return null;
+  const buildManualCar = (): HotWheelCar => {
     const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
     return {
       id,
-      name: result.name || 'Unknown Car',
-      year: result.year || '',
-      series: result.series || '',
-      color: result.color || '',
-      model: result.model || '',
-      scale: result.scale || '1:64',
-      rarity: result.rarity || '',
-      condition: result.condition || 'Mint',
-      buyPrice: 0,
-      expectedPrice: result.priceINR || 0,
-      priceINR: result.priceINR || 0,
-      priceRange: result.priceRange || { min: 0, max: 0, avg: 0 },
-      priceSources: result.priceSources || [],
-      remarks: result.searchResults || '',
+      name: manualName.trim() || 'Unknown Car',
+      year: manualYear.trim(),
+      series: manualSeries.trim(),
+      color: manualColor.trim(),
+      model: manualModel.trim(),
+      scale: manualScale.trim() || '1:64',
+      rarity: manualRarity.trim(),
+      condition: manualCondition.trim() || 'Mint',
+      buyPrice: parseInt(manualBuyPrice) || 0,
+      expectedPrice: parseInt(manualMarketPrice) || 0,
+      priceINR: parseInt(manualMarketPrice) || 0,
+      priceRange: { min: 0, max: 0, avg: parseInt(manualMarketPrice) || 0 },
+      priceSources: [],
+      remarks: manualRemarks.trim(),
       images: imageUri ? [imageUri] : [],
-      inCollection: true,
+      inCollection: manualAddTo === 'garage',
       dateAdded: new Date().toISOString(),
-      barcode: result.barcode || '',
-      manufacturer: result.manufacturer || 'Mattel',
-      tampos: result.tampos || '',
-      wheelType: result.wheelType || '',
-      baseColor: result.baseColor || '',
-      history: result.history || '',
-      status: result.status || 'UNKNOWN',
-      matchScore: result.matchScore || 0,
+      barcode: manualBarcode.trim(),
+      manufacturer: manualManufacturer.trim() || 'Mattel',
+      tampos: manualTampos.trim(),
+      wheelType: manualWheelType.trim(),
+      baseColor: manualBaseColor.trim(),
+      history: '',
+      status: 'MANUAL',
+      matchScore: 100,
       quantity: 1,
       purchaseHistory: [],
       saleHistory: [],
@@ -113,12 +144,12 @@ export default function AddScreen() {
       soldDate: '',
       soldPlatform: '',
       soldNotes: '',
-      storageLocation: '',
-      allocation: 'personal',
-      cardCondition: '',
-      packaging: '',
-      caseCode: '',
-      toyNumber: '',
+      storageLocation: manualStorageLocation.trim(),
+      allocation: manualAllocation,
+      cardCondition: manualCardCondition.trim(),
+      packaging: manualPackaging.trim(),
+      caseCode: manualCaseCode.trim(),
+      toyNumber: manualToyNumber.trim(),
       variations: [],
     };
   };
@@ -130,14 +161,19 @@ export default function AddScreen() {
     setPendingCar(null);
     Alert.alert('Added!', `${car.name} added as a new purchase to Garage!`, [
       { text: 'View Garage', onPress: () => router.push('/(tabs)/garage') },
-      { text: 'Done', onPress: reset },
+      { text: 'Done', onPress: resetManual },
     ]);
   };
 
-  const addToGarage = async () => {
-    const car = buildNewCar();
-    if (!car) return;
-    // Smart duplicate detection
+
+
+  const saveManualCar = async () => {
+    if (!manualName.trim()) {
+      Alert.alert('Name Required', 'Please enter the car name.');
+      return;
+    }
+    const car = buildManualCar();
+    // Check for duplicates
     const analysis = await analyzeDuplicateDetails(car.name, car.model, car.year, car.color);
     if (analysis.sameColorCount > 0 || analysis.differentColorCount > 0) {
       setDupeAnalysis(analysis);
@@ -146,354 +182,315 @@ export default function AddScreen() {
       return;
     }
     await addCar(car);
-    Alert.alert('Added!', `${car.name} (${car.year}) — ₹${car.priceINR} added to Garage!`, [
-      { text: 'View Garage', onPress: () => router.push('/(tabs)/garage') },
-      { text: 'Done', onPress: reset },
+    Alert.alert('Added!', `${car.name} added to ${manualAddTo === 'garage' ? 'Garage' : 'Wishlist'}!`, [
+      { text: `View ${manualAddTo === 'garage' ? 'Garage' : 'Wishlist'}`, onPress: () => router.push(manualAddTo === 'garage' ? '/(tabs)/garage' : '/(tabs)/wishlist') },
+      { text: 'Done', onPress: resetManual },
     ]);
   };
 
-  const addToWishlist = async () => {
-    const car = buildNewCar();
-    if (!car) return;
-    car.inCollection = false;
-    car.condition = '';
-    await addCar(car);
-    Alert.alert('Added to Wishlist!', `${car.name} — ₹${car.priceINR}`, [
-      { text: 'View Wishlist', onPress: () => router.push('/(tabs)/wishlist') },
-      { text: 'Done', onPress: reset },
-    ]);
-  };
 
-  const reset = () => {
-    setPhase('pick');
+  const resetManual = () => {
+    setInputMode(appIsManual ? 'manual' : 'choose');
+    setManualName('');
+    setManualYear('');
+    setManualSeries('');
+    setManualColor('');
+    setManualModel('');
+    setManualScale('1:64');
+    setManualRarity('');
+    setManualCondition('Mint');
+    setManualBuyPrice('');
+    setManualMarketPrice('');
+    setManualManufacturer('Mattel');
+    setManualTampos('');
+    setManualWheelType('');
+    setManualBaseColor('');
+    setManualBarcode('');
+    setManualRemarks('');
+    setManualCaseCode('');
+    setManualToyNumber('');
+    setManualPackaging('');
+    setManualCardCondition('');
+    setManualAllocation('personal');
+    setManualStorageLocation('');
+    setManualAddTo('garage');
     setImageUri(null);
-    setResult(null);
-    setError('');
-    setResearchData(null);
   };
 
-  return (
-    <>
-    <ScrollView style={styles.container} contentContainerStyle={styles.scroll}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <MaterialIcons name="add-circle" size={28} color="#e63946" />
-          <View>
-            <Text style={styles.headerTitle}>Add Car</Text>
-            <Text style={styles.headerSub}>AI identifies all details from your photo</Text>
+  const ManualEntryForm = () => (
+    <View style={styles.manualForm}>
+      {/* Back Button */}
+      <TouchableOpacity
+        style={[styles.backToChooseBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        onPress={() => { setInputMode('choose'); resetManual(); }}
+      >
+        <MaterialIcons name="arrow-back" size={18} color={colors.info} />
+        <Text style={[styles.backToChooseText, { color: colors.info }]}>Back</Text>
+      </TouchableOpacity>
+
+      {/* Basic Info */}
+      <View style={[styles.formSection, appStyles.card]}>
+        <Text style={[styles.formSectionTitle, appStyles.textPrimary]}>📝 Basic Info</Text>
+        <View style={styles.formRow}>
+          <Text style={[styles.formLabel, appStyles.textSecondary]}>Name *</Text>
+          <TextInput style={[styles.formInput, appStyles.input]} value={manualName} onChangeText={setManualName} placeholder="e.g. Lamborghini Countach" placeholderTextColor={colors.textMuted} />
+        </View>
+        <View style={styles.formRowHalf}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Year</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualYear} onChangeText={setManualYear} placeholder="2024" placeholderTextColor={colors.textMuted} keyboardType="number-pad" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Model (Casting)</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualModel} onChangeText={setManualModel} placeholder="e.g. HW Modified" placeholderTextColor={colors.textMuted} />
+          </View>
+        </View>
+        <View style={styles.formRowHalf}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Series</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualSeries} onChangeText={setManualSeries} placeholder="e.g. HW Exotics" placeholderTextColor={colors.textMuted} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Color</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualColor} onChangeText={setManualColor} placeholder="e.g. Red" placeholderTextColor={colors.textMuted} />
+          </View>
+        </View>
+        <View style={styles.formRowHalf}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Rarity</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualRarity} onChangeText={setManualRarity} placeholder="e.g. Super Treasure Hunt" placeholderTextColor={colors.textMuted} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Scale</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualScale} onChangeText={setManualScale} placeholder="1:64" placeholderTextColor={colors.textMuted} />
           </View>
         </View>
       </View>
 
-      {phase === 'pick' && (
-        <>
-          {/* Photo input */}
-          <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.actionCard} onPress={() => pickImage(true)}>
-              <View style={[styles.iconCircle, { backgroundColor: 'rgba(230, 57, 70, 0.15)' }]}>
-                <MaterialIcons name="camera-alt" size={28} color="#e63946" />
-              </View>
-              <Text style={styles.actionLabel}>Take Photo</Text>
-              <Text style={styles.actionDesc}>Snap your car card</Text>
+      {/* Price Info */}
+      <View style={[styles.formSection, appStyles.card]}>
+        <Text style={[styles.formSectionTitle, appStyles.textPrimary]}>💰 Price</Text>
+        <View style={styles.formRowHalf}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Buy Price (₹)</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualBuyPrice} onChangeText={setManualBuyPrice} placeholder="0" placeholderTextColor={colors.textMuted} keyboardType="number-pad" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Market Value (₹)</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualMarketPrice} onChangeText={setManualMarketPrice} placeholder="0" placeholderTextColor={colors.textMuted} keyboardType="number-pad" />
+          </View>
+        </View>
+      </View>
+
+      {/* Details */}
+      <View style={[styles.formSection, appStyles.card]}>
+        <Text style={[styles.formSectionTitle, appStyles.textPrimary]}>🔧 Details</Text>
+        <View style={styles.formRowHalf}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Manufacturer</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualManufacturer} onChangeText={setManualManufacturer} placeholder="Mattel" placeholderTextColor={colors.textMuted} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Condition</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualCondition} onChangeText={setManualCondition} placeholder="Mint" placeholderTextColor={colors.textMuted} />
+          </View>
+        </View>
+        <View style={styles.formRowHalf}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Tampos</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualTampos} onChangeText={setManualTampos} placeholder="Decoration details" placeholderTextColor={colors.textMuted} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Wheels</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualWheelType} onChangeText={setManualWheelType} placeholder="Wheel type" placeholderTextColor={colors.textMuted} />
+          </View>
+        </View>
+        <View style={styles.formRowHalf}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Base Color</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualBaseColor} onChangeText={setManualBaseColor} placeholder="e.g. Chrome" placeholderTextColor={colors.textMuted} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Barcode</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualBarcode} onChangeText={setManualBarcode} placeholder="UPC / EAN" placeholderTextColor={colors.textMuted} />
+          </View>
+        </View>
+        <View style={styles.formRowHalf}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Case Code</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualCaseCode} onChangeText={setManualCaseCode} placeholder="A-Q" placeholderTextColor={colors.textMuted} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Toy Number</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualToyNumber} onChangeText={setManualToyNumber} placeholder="e.g. 124/250" placeholderTextColor={colors.textMuted} />
+          </View>
+        </View>
+        <View style={styles.formRowHalf}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Packaging</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualPackaging} onChangeText={setManualPackaging} placeholder="longCard / shortCard" placeholderTextColor={colors.textMuted} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formLabel, appStyles.textSecondary]}>Card Condition</Text>
+            <TextInput style={[styles.formInput, appStyles.input]} value={manualCardCondition} onChangeText={setManualCardCondition} placeholder="mint / softCorner" placeholderTextColor={colors.textMuted} />
+          </View>
+        </View>
+      </View>
+
+      {/* Allocation & Storage */}
+      <View style={[styles.formSection, appStyles.card]}>
+        <Text style={[styles.formSectionTitle, appStyles.textPrimary]}>📦 Allocation</Text>
+        <View style={styles.allocRow}>
+          {(['personal', 'trade', 'forSale'] as const).map((a) => (
+            <TouchableOpacity
+              key={a}
+              style={[styles.allocChip, manualAllocation === a && styles.allocChipActive]}
+              onPress={() => setManualAllocation(a)}
+            >
+              <Text style={[styles.allocChipText, manualAllocation === a && styles.allocChipTextActive]}>
+                {a === 'personal' ? 'Personal' : a === 'trade' ? 'Trade' : 'For Sale'}
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionCard} onPress={() => pickImage(false)}>
-              <View style={[styles.iconCircle, { backgroundColor: 'rgba(77, 166, 255, 0.15)' }]}>
-                <MaterialIcons name="photo-library" size={28} color="#4da6ff" />
-              </View>
-              <Text style={styles.actionLabel}>Pick Image</Text>
-              <Text style={styles.actionDesc}>From your gallery</Text>
+          ))}
+        </View>
+        <View style={styles.formRow}>
+          <Text style={[styles.formLabel, appStyles.textSecondary]}>Storage Location</Text>
+          <TextInput style={[styles.formInput, appStyles.input]} value={manualStorageLocation} onChangeText={setManualStorageLocation} placeholder="e.g. Shelf 1 > Tub #4" placeholderTextColor={colors.textMuted} />
+        </View>
+      </View>
+
+      {/* Remarks */}
+      <View style={[styles.formSection, appStyles.card]}>
+        <Text style={[styles.formSectionTitle, appStyles.textPrimary]}>📋 Notes</Text>
+        <TextInput
+          style={[styles.formInput, appStyles.input, { height: 60, textAlignVertical: 'top' }]}
+          value={manualRemarks}
+          onChangeText={setManualRemarks}
+          placeholder="Additional notes about this car..."
+          placeholderTextColor={colors.textMuted}
+          multiline
+        />
+      </View>
+
+      {/* Add To */}
+      <View style={[styles.formSection, appStyles.card]}>
+        <Text style={[styles.formSectionTitle, appStyles.textPrimary]}>📌 Add To</Text>
+        <View style={styles.allocRow}>
+          <TouchableOpacity
+            style={[styles.allocChip, manualAddTo === 'garage' && { backgroundColor: '#1b5e20', borderColor: '#4caf50' }]}
+            onPress={() => setManualAddTo('garage')}
+          >
+            <MaterialCommunityIcons name="car" size={14} color={manualAddTo === 'garage' ? '#fff' : '#888'} />
+            <Text style={[styles.allocChipText, manualAddTo === 'garage' && { color: '#fff' }]}>Garage</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.allocChip, manualAddTo === 'wishlist' && { backgroundColor: '#333', borderColor: '#FFD700' }]}
+            onPress={() => setManualAddTo('wishlist')}
+          >
+            <MaterialIcons name="star" size={14} color={manualAddTo === 'wishlist' ? '#FFD700' : '#888'} />
+            <Text style={[styles.allocChipText, manualAddTo === 'wishlist' && { color: '#FFD700' }]}>Wishlist</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Photo */}
+      <View style={[styles.formSection, appStyles.card]}>
+        <Text style={[styles.formSectionTitle, appStyles.textPrimary]}>📸 Photo (Optional)</Text>
+        {imageUri ? (
+          <View style={{ position: 'relative' }}>
+            <Image source={{ uri: imageUri }} style={styles.miniPreview} resizeMode="cover" />
+            <TouchableOpacity style={styles.removePhotoBtn} onPress={() => setImageUri(null)}>
+              <MaterialIcons name="close" size={16} color="#fff" />
             </TouchableOpacity>
           </View>
+        ) : (
+          <View style={styles.photoPickRow}>
+            <TouchableOpacity style={styles.photoPickBtn} onPress={() => pickImage(true)}>
+              <MaterialIcons name="camera-alt" size={20} color="#e63946" />
+              <Text style={styles.photoPickText}>Camera</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.photoPickBtn} onPress={() => pickImage(false)}>
+              <MaterialIcons name="photo-library" size={20} color="#4da6ff" />
+              <Text style={styles.photoPickText}>Gallery</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
 
-          <View style={styles.infoCard}>
-            <MaterialIcons name="info-outline" size={16} color="#4da6ff" />
-            <Text style={styles.infoText}>
-              Just take a photo of the Hot Wheels card — AI will automatically identify the car name, year, series, rarity, price, and full history. No manual entry needed!
+      {/* Save Button */}
+      <TouchableOpacity style={styles.saveButton} onPress={saveManualCar}>
+        <MaterialIcons name="save" size={20} color="#fff" />
+        <Text style={styles.saveButtonText}>Save Car</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  return (
+    <>
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.scroll}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#e63946" />
+      }
+    >
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerRow}>
+          <MaterialIcons name="add-circle" size={28} color="#e63946" />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>Add Car</Text>
+            <Text style={[styles.headerSub, { color: colors.textSecondary }]}>
+              {inputMode === 'manual' ? 'Enter car details manually' : 'AI identifies all details from your photo'}
+            </Text>
+          </View>
+          {!appIsManual && inputMode !== 'manual' && (
+            <TouchableOpacity style={[styles.modeToggleBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setInputMode('manual')}>
+              <MaterialIcons name="edit" size={16} color={colors.info} />
+              <Text style={[styles.modeToggleText, { color: colors.info }]}>Manual</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Input Mode: Choose */}
+      {inputMode === 'choose' && (
+        <>
+          <TouchableOpacity
+            style={[styles.actionCardFull, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={() => setInputMode('manual')}
+          >
+            <View style={[styles.iconCircle, { backgroundColor: colors.infoBg }]}>
+              <MaterialIcons name="edit" size={32} color={colors.info} />
+            </View>
+            <Text style={[styles.actionLabel, { color: colors.text }]}>Manual Entry</Text>
+            <Text style={[styles.actionDesc, { color: colors.textMuted }]}>Fill in car details yourself</Text>
+          </TouchableOpacity>
+
+          <View style={[styles.infoCard, { backgroundColor: colors.infoBg, borderColor: 'rgba(77, 166, 255, 0.3)' }]}>  
+            <MaterialIcons name="info-outline" size={16} color={colors.info} />
+            <Text style={[styles.infoText, { color: colors.info }]}>
+              Use Manual Entry to type in all car details. For AI scanning, use the Scan tab.
             </Text>
           </View>
         </>
       )}
 
-      {phase === 'analyzing' && (
-        <View style={styles.statusCard}>
-          {imageUri && <Image source={{ uri: imageUri }} style={styles.miniPreview} resizeMode="cover" />}
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#e63946" />
-            <MaterialCommunityIcons name="car" size={40} color="#e63946" style={styles.loadingCarIcon} />
-          </View>
-          <Text style={styles.statusText}>AI is identifying your car...</Text>
-          <Text style={styles.statusDesc}>Reading card details, year, pricing & history</Text>
-        </View>
-      )}
+      {/* Input Mode: Manual */}
+      {inputMode === 'manual' && <ManualEntryForm />}
 
-      {phase === 'result' && (
-        <>
-          {error ? (
-            <View style={styles.errorCard}>
-              <MaterialIcons name="error-outline" size={40} color="#ff6b6b" />
-              <Text style={styles.errorText}>{error}</Text>
-              <TouchableOpacity style={styles.retryButton} onPress={reset}>
-                <MaterialIcons name="refresh" size={18} color="#fff" />
-                <Text style={styles.retryButtonText}>Try Again</Text>
-              </TouchableOpacity>
-            </View>
-          ) : result ? (
-            <>
-              {imageUri && <Image source={{ uri: imageUri }} style={styles.miniPreview} resizeMode="cover" />}
 
-              {/* AI Details */}
-              <View style={styles.aiSection}>
-                <View style={styles.aiHeader}>
-                  <MaterialCommunityIcons name="robot" size={18} color="#4da6ff" />
-                  <Text style={styles.aiTitle}>AI Identified</Text>
-                  <View style={[
-                    styles.confidenceBadge,
-                    result.confidence === 'high' ? styles.confHigh :
-                    result.confidence === 'medium' ? styles.confMed : styles.confLow
-                  ]}>
-                    <Text style={styles.confText}>{result.confidence || 'medium'}</Text>
-                  </View>
-                </View>
 
-                <Text style={styles.carName}>{result.name || 'Unknown Car'}</Text>
-                <Text style={styles.carSub}>
-                  {result.year ? `${result.year}` : ''}
-                  {result.model ? ` · ${result.model}` : ''}
-                </Text>
-
-                <View style={styles.tags}>
-                  {result.rarity ? (
-                    <View style={[styles.tag, styles.tagRarity]}>
-                      <MaterialIcons name="star" size={10} color="#ccc" />
-                      <Text style={styles.tagText}>{result.rarity}</Text>
-                    </View>
-                  ) : null}
-                  {result.condition ? (
-                    <View style={[styles.tag, styles.tagCondition]}>
-                      <MaterialIcons name="check-circle" size={10} color="#ccc" />
-                      <Text style={styles.tagText}>{result.condition}</Text>
-                    </View>
-                  ) : null}
-                  {result.series ? (
-                    <View style={[styles.tag, styles.tagSeries]}>
-                      <MaterialIcons name="collections-bookmark" size={10} color="#ccc" />
-                      <Text style={styles.tagText}>{result.series}</Text>
-                    </View>
-                  ) : null}
-                  {result.variant ? (
-                    <View style={[styles.tag, styles.tagVariant]}>
-                      <MaterialIcons name="palette" size={10} color="#ccc" />
-                      <Text style={styles.tagText}>{result.variant}</Text>
-                    </View>
-                  ) : null}
-                </View>
-
-                {result.conditionNotes ? (
-                  <Text style={styles.conditionNotes}>
-                    {result.conditionNotes}
-                  </Text>
-                ) : null}
-
-                <View style={styles.aiDetails}>
-                  {result.color ? (
-                    <View style={styles.aiRow}>
-                      <MaterialIcons name="palette" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Color</Text>
-                      <Text style={styles.aiValue}>{result.color}</Text>
-                    </View>
-                  ) : null}
-                  {result.scale ? (
-                    <View style={styles.aiRow}>
-                      <MaterialIcons name="straighten" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Scale</Text>
-                      <Text style={styles.aiValue}>{result.scale}</Text>
-                    </View>
-                  ) : null}
-                  {result.manufacturer ? (
-                    <View style={styles.aiRow}>
-                      <MaterialIcons name="business" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Maker</Text>
-                      <Text style={styles.aiValue}>{result.manufacturer}</Text>
-                    </View>
-                  ) : null}
-                  {result.wheelType ? (
-                    <View style={styles.aiRow}>
-                      <MaterialIcons name="loop" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Wheels</Text>
-                      <Text style={styles.aiValue}>{result.wheelType}</Text>
-                    </View>
-                  ) : null}
-                  {result.baseColor ? (
-                    <View style={styles.aiRow}>
-                      <MaterialIcons name="square" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Base</Text>
-                      <Text style={styles.aiValue}>{result.baseColor}</Text>
-                    </View>
-                  ) : null}
-                  {result.tampos ? (
-                    <View style={styles.aiRow}>
-                      <MaterialIcons name="brush" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Tampos</Text>
-                      <Text style={styles.aiValue}>{result.tampos}</Text>
-                    </View>
-                  ) : null}
-                  {result.barcode ? (
-                    <View style={styles.aiRow}>
-                      <MaterialCommunityIcons name="barcode" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Barcode</Text>
-                      <Text style={styles.aiValue}>{result.barcode}</Text>
-                    </View>
-                  ) : null}
-                </View>
-              </View>
-
-              {/* Car History */}
-              {result.history ? (
-                <View style={styles.historyCard}>
-                  <View style={styles.historyHeader}>
-                    <MaterialIcons name="history-edu" size={18} color="#FFD700" />
-                    <Text style={styles.historyTitle}>Car History & Background</Text>
-                  </View>
-                  <Text style={styles.historyText}>{result.history}</Text>
-                </View>
-              ) : null}
-
-              {/* Price Range */}
-              {result.priceRange && result.priceRange.min > 0 && (
-                <View style={styles.priceRangeCard}>
-                  <View style={styles.priceRangeHeader}>
-                    <MaterialIcons name="show-chart" size={18} color="#4caf50" />
-                    <Text style={styles.priceRangeTitle}>Market Value (INR)</Text>
-                  </View>
-                  <View style={styles.priceRangeRow}>
-                    <View style={styles.priceRangeBox}>
-                      <Text style={styles.priceRangeLabel}>Low</Text>
-                      <Text style={styles.priceRangeValue}>₹{result.priceRange.min.toLocaleString('en-IN')}</Text>
-                    </View>
-                    <MaterialIcons name="arrow-forward" size={20} color="#555" />
-                    <View style={styles.priceRangeBox}>
-                      <Text style={styles.priceRangeLabel}>Avg</Text>
-                      <Text style={[styles.priceRangeValue, { color: '#4caf50' }]}>₹{result.priceRange.avg.toLocaleString('en-IN')}</Text>
-                    </View>
-                    <MaterialIcons name="arrow-forward" size={20} color="#555" />
-                    <View style={styles.priceRangeBox}>
-                      <Text style={styles.priceRangeLabel}>High</Text>
-                      <Text style={styles.priceRangeValue}>₹{result.priceRange.max.toLocaleString('en-IN')}</Text>
-                    </View>
-                  </View>
-                  {result.priceSources && result.priceSources.length > 0 && (
-                    <View style={styles.priceSourcesList}>
-                      <Text style={styles.priceSourcesHeader}>Collector References</Text>
-                      {result.priceSources.map((source, idx) => (
-                        <View key={idx} style={styles.priceSourceItem}>
-                          <View style={styles.priceSourceLeft}>
-                            <Text style={styles.priceSourceName}>{source.source || 'Collector'}</Text>
-                            <Text style={styles.priceSourceRef}>{source.reference || ''}</Text>
-                          </View>
-                          <Text style={styles.priceSourcePrice}>₹{source.price.toLocaleString('en-IN')}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                </View>
-              )}
-
-              {/* Market Info */}
-              {result.searchResults ? (
-                <View style={styles.infoCard}>
-                  <View style={styles.infoHeader}>
-                    <MaterialIcons name="trending-up" size={18} color="#4da6ff" />
-                    <Text style={styles.infoTitle}>Market Info</Text>
-                  </View>
-                  <Text style={styles.infoText}>{result.searchResults}</Text>
-                </View>
-              ) : null}
-
-              {/* Research Sources */}
-              {researchData && researchData.researchSources && researchData.researchSources.length > 0 && (
-                <View style={styles.researchCard}>
-                  <View style={styles.researchHeader}>
-                    <MaterialIcons name="public" size={18} color="#4da6ff" />
-                    <Text style={styles.researchTitle}>Internet Research</Text>
-                    <View style={styles.researchBadge}>
-                      <Text style={styles.researchBadgeText}>{researchData.researchSources.length} sources</Text>
-                    </View>
-                  </View>
-
-                  {researchData.release && researchData.release.year && (
-                    <View style={styles.researchSection}>
-                      <View style={styles.researchRow}>
-                        <MaterialIcons name="calendar-today" size={14} color="#FFD700" />
-                        <Text style={styles.researchLabel}>Release Year</Text>
-                        <Text style={styles.researchValue}>{researchData.release.year}</Text>
-                      </View>
-                      <Text style={styles.researchStatus}>
-                        {researchData.release.status === 'CONFIRMED' ? `✓ Verified from ${researchData.release.sources.length} sources` : researchData.release.notes}
-                      </Text>
-                    </View>
-                  )}
-
-                  {researchData.market && researchData.market.salesCount > 0 && (
-                    <View style={styles.researchSection}>
-                      <View style={styles.researchRow}>
-                        <MaterialIcons name="trending-up" size={14} color="#4caf50" />
-                        <Text style={styles.researchLabel}>Market Data</Text>
-                        <Text style={styles.researchValue}>{researchData.market.salesCount} observations</Text>
-                      </View>
-                      <Text style={styles.researchStatus}>{researchData.market.notes}</Text>
-                    </View>
-                  )}
-
-                  <View style={styles.researchSourcesList}>
-                    {researchData.researchSources.slice(0, 5).map((source: any, idx: number) => (
-                      <View key={idx} style={styles.researchSourceItem}>
-                        <View style={styles.researchSourceIcon}>
-                          <MaterialIcons name={source.type === 'year' ? 'calendar-today' : source.type === 'price' ? 'attach-money' : 'public'} size={12} color="#4da6ff" />
-                        </View>
-                        <Text style={styles.researchSourceName} numberOfLines={1}>{source.title}</Text>
-                      </View>
-                    ))}
-                  </View>
-
-                  {researchData.lastResearched && (
-                    <Text style={styles.researchTimestamp}>
-                      Last researched: {new Date(researchData.lastResearched).toLocaleDateString('en-IN')}
-                    </Text>
-                  )}
-                </View>
-              )}
-
-              {/* Actions */}
-              <View style={styles.resultActions}>
-                <TouchableOpacity style={styles.garageButton} onPress={addToGarage}>
-                  <MaterialCommunityIcons name="car" size={20} color="#fff" />
-                  <Text style={styles.garageButtonText}>Add to Garage</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.wishlistButton} onPress={addToWishlist}>
-                  <MaterialIcons name="star" size={20} color="#fff" />
-                  <Text style={styles.wishlistButtonText}>Add to Wishlist</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.resetButton} onPress={reset}>
-                  <MaterialIcons name="camera-alt" size={18} color="#aaa" />
-                  <Text style={styles.resetButtonText}>Scan Another</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          ) : null}
-        </>
-      )}
     </ScrollView>
 
     {/* ===== DUPLICATE ALERT MODAL ===== */}
     {showDupeModal && dupeAnalysis && pendingCar && (
-      <View style={styles.dupeOverlay}>
-        <View style={styles.dupeModal}>
+      <View style={[styles.dupeOverlay, { backgroundColor: colors.overlay }]}>
+        <View style={[styles.dupeModal, appStyles.card]}>
           <View style={styles.dupeHeader}>
             <MaterialIcons name="content-copy" size={28} color="#FF9800" />
             <Text style={styles.dupeTitle}>Duplicate Found!</Text>
           </View>
-          {/* Same color duplicates */}
           {dupeAnalysis.sameColorCount > 0 && (
             <>
               <View style={styles.dupeSectionRow}>
@@ -501,17 +498,17 @@ export default function AddScreen() {
                 <Text style={styles.dupeSectionTitle}>Same color ({dupeAnalysis.sameColorCount}x)</Text>
               </View>
               {dupeAnalysis.exactDupes.map((dc) => (
-                <View key={dc.id} style={styles.dupeCard}>
+                <View key={dc.id} style={[styles.dupeCard, { backgroundColor: colors.inputBg, borderColor: colors.borderLight }]}>
                   {dc.images && dc.images.length > 0 ? (
-                    <Image source={{ uri: dc.images[0] }} style={styles.dupeThumb} resizeMode="cover" />
+                    <Image source={{ uri: dc.images[0] }} style={[styles.dupeThumb, { backgroundColor: colors.cardImageBg }]} resizeMode="cover" />
                   ) : (
-                    <View style={[styles.dupeThumb, styles.dupeThumbPlaceholder]}>
-                      <MaterialCommunityIcons name="car" size={20} color="#2a2a4a" />
+                    <View style={[styles.dupeThumb, styles.dupeThumbPlaceholder, { backgroundColor: colors.cardImageBg, borderColor: colors.border }]}>  
+                      <MaterialCommunityIcons name="car" size={20} color={colors.textMuted} />
                     </View>
                   )}
                   <View style={styles.dupeCardLeft}>
-                    <Text style={styles.dupeName}>{dc.name}</Text>
-                    <Text style={styles.dupeInfo}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
+                    <Text style={[styles.dupeName, appStyles.textPrimary]}>{dc.name}</Text>
+                    <Text style={[styles.dupeInfo, appStyles.textSecondary]}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
                     <Text style={styles.dupePrice}>Paid: ₹{(dc.buyPrice || 0).toLocaleString('en-IN')}</Text>
                   </View>
                   <TouchableOpacity
@@ -529,7 +526,6 @@ export default function AddScreen() {
               ))}
             </>
           )}
-          {/* Different color variants */}
           {dupeAnalysis.differentColorCount > 0 && (
             <>
               <View style={styles.dupeSectionRow}>
@@ -537,17 +533,17 @@ export default function AddScreen() {
                 <Text style={[styles.dupeSectionTitle, { color: '#42A5F5' }]}>Different color ({dupeAnalysis.differentColorCount}x)</Text>
               </View>
               {dupeAnalysis.colorVariants.map((dc) => (
-                <View key={dc.id} style={styles.dupeCard}>
+                <View key={dc.id} style={[styles.dupeCard, { backgroundColor: colors.inputBg, borderColor: colors.borderLight }]}>
                   {dc.images && dc.images.length > 0 ? (
-                    <Image source={{ uri: dc.images[0] }} style={styles.dupeThumb} resizeMode="cover" />
+                    <Image source={{ uri: dc.images[0] }} style={[styles.dupeThumb, { backgroundColor: colors.cardImageBg }]} resizeMode="cover" />
                   ) : (
-                    <View style={[styles.dupeThumb, styles.dupeThumbPlaceholder]}>
-                      <MaterialCommunityIcons name="car" size={20} color="#2a2a4a" />
+                    <View style={[styles.dupeThumb, styles.dupeThumbPlaceholder, { backgroundColor: colors.cardImageBg, borderColor: colors.border }]}>  
+                      <MaterialCommunityIcons name="car" size={20} color={colors.textMuted} />
                     </View>
                   )}
                   <View style={styles.dupeCardLeft}>
-                    <Text style={styles.dupeName}>{dc.name}</Text>
-                    <Text style={styles.dupeInfo}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
+                    <Text style={[styles.dupeName, appStyles.textPrimary]}>{dc.name}</Text>
+                    <Text style={[styles.dupeInfo, appStyles.textSecondary]}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
                     <Text style={styles.dupePrice}>Paid: ₹{(dc.buyPrice || 0).toLocaleString('en-IN')}</Text>
                   </View>
                   <TouchableOpacity
@@ -593,17 +589,34 @@ export default function AddScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f23' },
+  container: { flex: 1 },
   scroll: { padding: 16, paddingTop: 50, paddingBottom: 100 },
   header: { marginBottom: 16 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  headerTitle: { fontSize: 26, fontWeight: '800', color: '#fff' },
-  headerSub: { fontSize: 13, color: '#888', marginTop: 2 },
+  headerTitle: { fontSize: 26, fontWeight: '800' },
+  headerSub: { fontSize: 13, marginTop: 2 },
+  modeToggleBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#1a1a2e', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
+    borderWidth: 1, borderColor: '#2a2a4a',
+  },
+  modeToggleText: { fontSize: 12, fontWeight: '700', color: '#4da6ff' },
   actionRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
   actionCard: {
     flex: 1, backgroundColor: '#1a1a2e', borderRadius: 14, padding: 20,
     alignItems: 'center', borderWidth: 1, borderColor: '#2a2a4a',
   },
+  actionCardFull: {
+    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 24,
+    alignItems: 'center', borderWidth: 1, borderColor: '#2a2a4a',
+    marginBottom: 16,
+  },
+  backToChooseBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+    borderWidth: 1, alignSelf: 'flex-start', marginBottom: 12,
+  },
+  backToChooseText: { fontSize: 14, fontWeight: '600' },
   iconCircle: {
     width: 56, height: 56, borderRadius: 28,
     justifyContent: 'center', alignItems: 'center', marginBottom: 12,
@@ -618,19 +631,19 @@ const styles = StyleSheet.create({
   infoText: { flex: 1, fontSize: 13, color: '#4da6ff', lineHeight: 18 },
   miniPreview: {
     width: '100%', height: 140, borderRadius: 14,
-    backgroundColor: '#1a1a2e', marginBottom: 12, borderWidth: 1, borderColor: '#2a2a4a',
+    marginBottom: 12, borderWidth: 1,
   },
   statusCard: {
-    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 24,
-    alignItems: 'center', borderWidth: 1, borderColor: '#2a2a4a',
+    borderRadius: 14, padding: 24,
+    alignItems: 'center', borderWidth: 1,
   },
   loadingContainer: {
     position: 'relative', width: 80, height: 80,
     justifyContent: 'center', alignItems: 'center',
   },
   loadingCarIcon: { position: 'absolute' },
-  statusText: { fontSize: 18, fontWeight: '700', color: '#fff', marginTop: 16 },
-  statusDesc: { fontSize: 13, color: '#888', marginTop: 6, textAlign: 'center' },
+  statusText: { fontSize: 18, fontWeight: '700', marginTop: 16 },
+  statusDesc: { fontSize: 13, marginTop: 6, textAlign: 'center' },
   errorCard: {
     backgroundColor: '#2a1a1a', borderRadius: 14, padding: 24,
     alignItems: 'center', borderWidth: 1, borderColor: '#4a2222',
@@ -643,18 +656,18 @@ const styles = StyleSheet.create({
   retryButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   // AI Section
   aiSection: {
-    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
-    marginBottom: 12, borderWidth: 1.5, borderColor: '#4da6ff',
+    borderRadius: 14, padding: 16,
+    marginBottom: 12, borderWidth: 1.5,
   },
   aiHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  aiTitle: { fontSize: 16, fontWeight: '800', color: '#4da6ff', flex: 1 },
+  aiTitle: { fontSize: 16, fontWeight: '800', flex: 1 },
   confidenceBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   confHigh: { backgroundColor: 'rgba(76, 175, 80, 0.2)' },
   confMed: { backgroundColor: 'rgba(255, 152, 0, 0.2)' },
   confLow: { backgroundColor: 'rgba(244, 67, 54, 0.2)' },
   confText: { fontSize: 10, color: '#aaa', fontWeight: '600', textTransform: 'capitalize' },
-  carName: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 4 },
-  carSub: { fontSize: 15, color: '#aaa', marginBottom: 10 },
+  carName: { fontSize: 22, fontWeight: '800', marginBottom: 4 },
+  carSub: { fontSize: 15, marginBottom: 10 },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
   tag: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -671,19 +684,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: '#222',
   },
-  aiLabel: { fontSize: 13, color: '#888', width: 70 },
-  aiValue: { fontSize: 13, color: '#fff', fontWeight: '600', flex: 1, textAlign: 'right' },
+  aiLabel: { fontSize: 13, width: 70 },
+  aiValue: { fontSize: 13, fontWeight: '600', flex: 1, textAlign: 'right' },
   // History card
   historyCard: {
-    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
+    borderRadius: 14, padding: 16,
     marginBottom: 12, borderWidth: 1, borderColor: '#FFD700',
   },
   historyHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   historyTitle: { fontSize: 15, fontWeight: '800', color: '#FFD700' },
-  historyText: { fontSize: 13, color: '#ccc', lineHeight: 20 },
+  historyText: { fontSize: 13, lineHeight: 20 },
   // Price range card
   priceRangeCard: {
-    backgroundColor: '#0a2a1a', borderRadius: 14, padding: 16,
+    borderRadius: 14, padding: 16,
     marginBottom: 12, borderWidth: 1, borderColor: '#1b5e20',
   },
   priceRangeHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
@@ -692,8 +705,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
   },
   priceRangeBox: { alignItems: 'center', flex: 1 },
-  priceRangeLabel: { fontSize: 11, color: '#888', textTransform: 'uppercase' },
-  priceRangeValue: { fontSize: 20, fontWeight: '800', color: '#fff', marginTop: 4 },
+  priceRangeLabel: { fontSize: 11, textTransform: 'uppercase' },
+  priceRangeValue: { fontSize: 20, fontWeight: '800', marginTop: 4 },
   priceSourcesList: {
     marginTop: 12, paddingTop: 12, borderTopWidth: 0.5, borderTopColor: '#1b5e20',
   },
@@ -706,8 +719,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: 'rgba(27, 94, 32, 0.3)',
   },
   priceSourceLeft: { flex: 1, marginRight: 12 },
-  priceSourceName: { fontSize: 12, color: '#ccc', fontWeight: '600' },
-  priceSourceRef: { fontSize: 10, color: '#666', marginTop: 1 },
+  priceSourceName: { fontSize: 12, fontWeight: '600' },
+  priceSourceRef: { fontSize: 10, marginTop: 1 },
   priceSourcePrice: { fontSize: 13, color: '#4caf50', fontWeight: '800' },
   infoHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   infoTitle: { fontSize: 14, fontWeight: '700', color: '#4da6ff' },
@@ -719,17 +732,17 @@ const styles = StyleSheet.create({
   garageButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   wishlistButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: '#333', borderRadius: 12, padding: 16,
+    borderRadius: 12, padding: 16,
   },
   wishlistButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   resetButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: '#1a1a2e', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#2a2a4a',
+    borderRadius: 12, padding: 14, borderWidth: 1,
   },
-  resetButtonText: { color: '#aaa', fontSize: 14, fontWeight: '600' },
+  resetButtonText: { fontSize: 14, fontWeight: '600' },
   // Research section
   researchCard: {
-    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
+    borderRadius: 14, padding: 16,
     marginBottom: 12, borderWidth: 1, borderColor: '#4da6ff',
   },
   researchHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
@@ -740,12 +753,12 @@ const styles = StyleSheet.create({
   },
   researchBadgeText: { fontSize: 10, color: '#4da6ff', fontWeight: '600' },
   researchSection: {
-    backgroundColor: '#0f0f23', borderRadius: 10, padding: 12,
+    borderRadius: 10, padding: 12,
     marginBottom: 10,
   },
   researchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  researchLabel: { fontSize: 12, color: '#888', flex: 1 },
-  researchValue: { fontSize: 14, color: '#fff', fontWeight: '700' },
+  researchLabel: { fontSize: 12, flex: 1 },
+  researchValue: { fontSize: 14, fontWeight: '700' },
   researchStatus: { fontSize: 11, color: '#4caf50', marginTop: 4, fontStyle: 'italic' },
   researchSourcesList: { marginTop: 10 },
   researchSourceItem: {
@@ -757,20 +770,68 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(77, 166, 255, 0.15)',
     justifyContent: 'center', alignItems: 'center',
   },
-  researchSourceName: { fontSize: 11, color: '#aaa', flex: 1 },
+  researchSourceName: { fontSize: 11, flex: 1 },
   researchTimestamp: {
     fontSize: 10, color: '#555', marginTop: 8,
     textAlign: 'right', fontStyle: 'italic',
   },
 
+  // Manual Entry Form
+  manualForm: { gap: 12 },
+  formSection: {
+    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: '#2a2a4a',
+  },
+  formSectionTitle: {
+    fontSize: 15, fontWeight: '700', color: '#fff', marginBottom: 12,
+  },
+  formRow: { marginBottom: 10 },
+  formRowHalf: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  formLabel: {
+    fontSize: 11, fontWeight: '600', color: '#aaa', marginBottom: 4,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  formInput: {
+    borderRadius: 10, borderWidth: 1,
+    padding: 12, fontSize: 14,
+  },
+  allocRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  allocChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10,
+    backgroundColor: '#222', borderWidth: 1, borderColor: '#333',
+  },
+  allocChipActive: { backgroundColor: '#e63946', borderColor: '#e63946' },
+  allocChipText: { fontSize: 13, color: '#888', fontWeight: '600' },
+  allocChipTextActive: { color: '#fff' },
+  photoPickRow: {
+    flexDirection: 'row', gap: 10,
+  },
+  photoPickBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, backgroundColor: '#222', borderRadius: 10, padding: 14,
+    borderWidth: 1, borderColor: '#333',
+  },
+  photoPickText: { fontSize: 14, color: '#fff', fontWeight: '600' },
+  removePhotoBtn: {
+    position: 'absolute', top: 8, right: 8,
+    backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 12,
+    width: 28, height: 28, justifyContent: 'center', alignItems: 'center',
+  },
+  saveButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#e63946', borderRadius: 12, padding: 16, marginTop: 4,
+  },
+  saveButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
   // Duplicate Alert Modal
   dupeOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center',
+    justifyContent: 'center', alignItems: 'center',
     zIndex: 100, padding: 20,
   },
   dupeModal: {
-    backgroundColor: '#1a1a2e', borderRadius: 18, padding: 20,
+    borderRadius: 18, padding: 20,
     width: '100%', borderWidth: 2, borderColor: '#FF9800', maxHeight: '80%',
   },
   dupeHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
@@ -781,8 +842,8 @@ const styles = StyleSheet.create({
   },
   dupeSectionTitle: { fontSize: 13, fontWeight: '700', color: '#FF9800' },
   dupeCard: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f0f23',
-    borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#333', gap: 10,
+    flexDirection: 'row', alignItems: 'center',
+    borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, gap: 10,
   },
   dupeThumb: {
     width: 48, height: 48, borderRadius: 8, backgroundColor: '#12122a',
@@ -791,8 +852,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#2a2a4a',
   },
   dupeCardLeft: { flex: 1 },
-  dupeName: { fontSize: 14, fontWeight: '700', color: '#fff' },
-  dupeInfo: { fontSize: 11, color: '#888', marginTop: 2 },
+  dupeName: { fontSize: 14, fontWeight: '700' },
+  dupeInfo: { fontSize: 11, marginTop: 2 },
   dupePrice: { fontSize: 12, color: '#4caf50', fontWeight: '600', marginTop: 2 },
   dupeViewBtn: {
     backgroundColor: '#4da6ff', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,

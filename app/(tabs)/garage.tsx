@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,22 +12,26 @@ import {
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { getGarage, deleteCar, updateCar, analyzeDuplicateDetails } from '../../src/services/storage';
+import { getGarage, deleteCar, updateCar, analyzeDuplicateDetails, getViewPreferences, saveViewPreference } from '../../src/services/storage';
+import { hapticLight, hapticMedium, hapticSuccess } from '../../src/services/haptics';
 import { HotWheelCar, AllocationType } from '../../src/types';
 import FilterDropdown from '../../src/components/FilterDropdown';
 import PegHuntChecklist from '../../src/components/PegHuntChecklist';
+import { useTheme } from '../../src/context/ThemeContext';
 
 type ViewMode = 'list' | 'grid' | 'compact';
 type SortBy = 'newest' | 'name' | 'price-high' | 'price-low' | 'year';
 
 export default function GarageScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
   const [cars, setCars] = useState<HotWheelCar[]>([]);
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [sortBy, setSortBy] = useState<SortBy>('newest');
   const [showSort, setShowSort] = useState(false);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
 
   // Dropdown filters
   const [filterYear, setFilterYear] = useState('');
@@ -38,6 +42,28 @@ export default function GarageScreen() {
   const [filterAllocation, setFilterAllocation] = useState('');
   const [showPegHunt, setShowPegHunt] = useState(false);
   const [dupeCounts, setDupeCounts] = useState<Record<string, { same: number; diff: number }>>({});
+
+  // Load saved view preferences on mount
+  useEffect(() => {
+    (async () => {
+      const prefs = await getViewPreferences();
+      setViewMode((prefs.garage.viewMode as ViewMode) || 'grid');
+      setSortBy((prefs.garage.sortBy as SortBy) || 'newest');
+      setPrefsLoaded(true);
+    })();
+  }, []);
+
+  // Persist viewMode changes
+  const handleViewModeChange = useCallback(async (mode: ViewMode) => {
+    setViewMode(mode);
+    await saveViewPreference('garage', 'viewMode', mode);
+  }, []);
+
+  // Persist sortBy changes
+  const handleSortByChange = useCallback(async (sort: SortBy) => {
+    setSortBy(sort);
+    await saveViewPreference('garage', 'sortBy', sort);
+  }, []);
 
   const loadCars = async () => {
     const garage = await getGarage();
@@ -151,20 +177,24 @@ export default function GarageScreen() {
   const activeFilterCount = [filterYear, filterColor, filterSeries, filterRarity, filterCaseCode, filterAllocation].filter(Boolean).length;
 
   const cycleViewMode = () => {
+    hapticLight();
     const modes: ViewMode[] = ['list', 'grid', 'compact'];
     const idx = modes.indexOf(viewMode);
-    setViewMode(modes[(idx + 1) % modes.length]);
+    const newMode = modes[(idx + 1) % modes.length];
+    handleViewModeChange(newMode);
   };
 
   const viewIcon = viewMode === 'list' ? 'view-list' : viewMode === 'grid' ? 'grid-view' : 'view-module';
 
   const handleDelete = (car: HotWheelCar) => {
+    hapticMedium();
     Alert.alert('Delete Car', `Remove "${car.name}" from your garage?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
+          hapticSuccess();
           await deleteCar(car.id);
           await loadCars();
         },
@@ -173,8 +203,10 @@ export default function GarageScreen() {
   };
 
   const moveToWishlist = async (car: HotWheelCar) => {
+    hapticLight();
     await updateCar({ ...car, inCollection: false });
     await loadCars();
+    hapticSuccess();
     Alert.alert('Moved', `${car.name} moved to Wishlist`);
   };
 
@@ -210,7 +242,7 @@ export default function GarageScreen() {
   // ── List View Card ──
   const renderListItem = ({ item }: { item: HotWheelCar }) => (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}
       onPress={() => router.push({ pathname: '/car/[id]', params: { id: item.id, source: 'garage' } })}
       onLongPress={() => {
         Alert.alert(item.name, 'What would you like to do?', [
@@ -224,8 +256,8 @@ export default function GarageScreen() {
         {item.images && item.images.length > 0 ? (
           <Image source={{ uri: item.images[0] }} style={styles.cardImage} resizeMode="cover" />
         ) : (
-          <View style={styles.cardImagePlaceholder}>
-            <MaterialCommunityIcons name="car" size={36} color="#2a2a4a" />
+          <View style={[styles.cardImagePlaceholder, { backgroundColor: colors.cardImageBg }]}>
+            <MaterialCommunityIcons name="car" size={36} color={colors.border} />
           </View>
         )}
         {renderRarityBadge(item.rarity)}
@@ -238,16 +270,16 @@ export default function GarageScreen() {
         )}
       </View>
       <View style={styles.cardInfo}>
-        <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
-        <Text style={styles.cardSubtitle} numberOfLines={1}>{item.model}</Text>
+        <Text style={[styles.cardName, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
+        <Text style={[styles.cardSubtitle, { color: colors.textMuted }]} numberOfLines={1}>{item.model}</Text>
         <View style={styles.cardMetaRow}>
-          <View style={styles.metaPill}>
-            <MaterialIcons name="calendar-today" size={10} color="#888" />
-            <Text style={styles.cardMeta}>{item.year || '—'}</Text>
+          <View style={[styles.metaPill, { backgroundColor: colors.surfaceAlt }]}>
+            <MaterialIcons name="calendar-today" size={10} color={colors.textMuted} />
+            <Text style={[styles.cardMeta, { color: colors.textMuted }]}>{item.year || '—'}</Text>
           </View>
-          <View style={styles.metaPill}>
-            <MaterialIcons name="palette" size={10} color="#888" />
-            <Text style={styles.cardMeta}>{item.color || '—'}</Text>
+          <View style={[styles.metaPill, { backgroundColor: colors.surfaceAlt }]}>
+            <MaterialIcons name="palette" size={10} color={colors.textMuted} />
+            <Text style={[styles.cardMeta, { color: colors.textMuted }]}>{item.color || '—'}</Text>
           </View>
         </View>
         {item.series ? (
@@ -264,9 +296,9 @@ export default function GarageScreen() {
           </View>
         )}
       </View>
-      <View style={styles.cardPrice}>
-        <Text style={styles.priceLabel}>Market</Text>
-        <Text style={styles.priceValue}>
+      <View style={[styles.cardPrice, { borderTopColor: colors.borderLight }]}>
+        <Text style={[styles.priceLabel, { color: colors.textMuted }]}>Market</Text>
+        <Text style={[styles.priceValue, { color: colors.success }]}>
           ₹{(item.priceINR || item.expectedPrice || 0) > 0
             ? (item.priceINR || item.expectedPrice || 0).toLocaleString('en-IN')
             : '—'}
@@ -278,7 +310,7 @@ export default function GarageScreen() {
   // ── Grid View Card ──
   const renderGridItem = ({ item }: { item: HotWheelCar }) => (
     <TouchableOpacity
-      style={styles.gridCard}
+      style={[styles.gridCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}
       onPress={() => router.push({ pathname: '/car/[id]', params: { id: item.id, source: 'garage' } })}
       onLongPress={() => {
         Alert.alert(item.name, 'What would you like to do?', [
@@ -292,8 +324,8 @@ export default function GarageScreen() {
         {item.images && item.images.length > 0 ? (
           <Image source={{ uri: item.images[0] }} style={styles.gridImage} resizeMode="cover" />
         ) : (
-          <View style={styles.gridImagePlaceholder}>
-            <MaterialCommunityIcons name="car" size={30} color="#2a2a4a" />
+          <View style={[styles.gridImagePlaceholder, { backgroundColor: colors.cardImageBg }]}>
+            <MaterialCommunityIcons name="car" size={30} color={colors.border} />
           </View>
         )}
         {renderRarityBadge(item.rarity)}
@@ -306,8 +338,8 @@ export default function GarageScreen() {
         )}
       </View>
       <View style={styles.gridInfo}>
-        <Text style={styles.gridName} numberOfLines={1}>{item.name}</Text>
-        <Text style={styles.gridMeta}>{item.year || '—'} · {item.color || '—'}</Text>
+        <Text style={[styles.gridName, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
+        <Text style={[styles.gridMeta, { color: colors.textMuted }]}>{item.year || '—'} · {item.color || '—'}</Text>
         {item.allocation && item.allocation !== 'personal' && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
             <MaterialIcons name={item.allocation === 'forSale' ? 'sell' : 'swap-horiz'} size={10} color={item.allocation === 'forSale' ? '#4caf50' : '#FF9800'} />
@@ -316,7 +348,7 @@ export default function GarageScreen() {
             </Text>
           </View>
         )}
-        <Text style={styles.gridPrice}>
+        <Text style={[styles.gridPrice, { color: colors.success }]}>
           ₹{(item.priceINR || item.expectedPrice || 0) > 0
             ? (item.priceINR || item.expectedPrice || 0).toLocaleString('en-IN')
             : '—'}
@@ -328,7 +360,7 @@ export default function GarageScreen() {
   // ── Compact Grid Card ──
   const renderCompactItem = ({ item }: { item: HotWheelCar }) => (
     <TouchableOpacity
-      style={styles.compactCard}
+      style={[styles.compactCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}
       onPress={() => router.push({ pathname: '/car/[id]', params: { id: item.id, source: 'garage' } })}
       onLongPress={() => {
         Alert.alert(item.name, 'What would you like to do?', [
@@ -341,12 +373,12 @@ export default function GarageScreen() {
       {item.images && item.images.length > 0 ? (
         <Image source={{ uri: item.images[0] }} style={styles.compactImage} resizeMode="cover" />
       ) : (
-        <View style={styles.compactImagePlaceholder}>
-          <MaterialCommunityIcons name="car" size={20} color="#2a2a4a" />
+        <View style={[styles.compactImagePlaceholder, { backgroundColor: colors.cardImageBg }]}>
+          <MaterialCommunityIcons name="car" size={20} color={colors.border} />
         </View>
       )}
-      <Text style={styles.compactName} numberOfLines={1}>{item.name}</Text>
-      <Text style={styles.compactMeta}>{item.year || '—'} · {(item.priceINR || item.expectedPrice || 0) > 0 ? `₹${(item.priceINR || item.expectedPrice || 0).toLocaleString('en-IN')}` : '—'}</Text>
+      <Text style={[styles.compactName, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
+      <Text style={[styles.compactMeta, { color: colors.textMuted }]}>{item.year || '—'} · {(item.priceINR || item.expectedPrice || 0) > 0 ? `₹${(item.priceINR || item.expectedPrice || 0).toLocaleString('en-IN')}` : '—'}</Text>
     </TouchableOpacity>
   );
 
@@ -359,30 +391,30 @@ export default function GarageScreen() {
   const numCols = viewMode === 'compact' ? 3 : viewMode === 'grid' ? 2 : 1;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <View style={styles.headerIconWrap}>
+          <View style={[styles.headerIconWrap, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <MaterialCommunityIcons name="garage" size={24} color="#e63946" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>My Garage</Text>
-            <Text style={styles.headerCount}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>My Garage</Text>
+            <Text style={[styles.headerCount, { color: colors.textMuted }]}>
               {filtered.length} cars · ₹{totalValue.toLocaleString('en-IN')} value
               {activeFilterCount > 0 ? ` · ${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''}` : ''}
             </Text>
           </View>
-          <TouchableOpacity style={styles.headerBtn} onPress={clearFilters}>
-            <MaterialIcons name="filter-list-off" size={20} color={hasActiveFilters ? '#e63946' : '#555'} />
+          <TouchableOpacity style={[styles.headerBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={clearFilters}>
+            <MaterialIcons name="filter-list-off" size={20} color={hasActiveFilters ? '#e63946' : colors.textMuted} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerBtn} onPress={cycleViewMode}>
-            <MaterialIcons name={viewIcon as any} size={20} color="#888" />
+          <TouchableOpacity style={[styles.headerBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={cycleViewMode}>
+            <MaterialIcons name={viewIcon as any} size={20} color={colors.textMuted} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowSort(!showSort)}>
-            <MaterialIcons name="sort" size={20} color={showSort ? '#e63946' : '#888'} />
+          <TouchableOpacity style={[styles.headerBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setShowSort(!showSort)}>
+            <MaterialIcons name="sort" size={20} color={showSort ? '#e63946' : colors.textMuted} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowPegHunt(true)}>
+          <TouchableOpacity style={[styles.headerBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setShowPegHunt(true)}>
             <MaterialCommunityIcons name="map-marker-check" size={20} color="#FFD700" />
           </TouchableOpacity>
         </View>
@@ -400,10 +432,10 @@ export default function GarageScreen() {
           ].map((s) => (
             <TouchableOpacity
               key={s.key}
-              style={[styles.sortChip, sortBy === s.key && styles.sortChipActive]}
-              onPress={() => setSortBy(s.key as SortBy)}
+              style={[styles.sortChip, { backgroundColor: colors.surface, borderColor: colors.border }, sortBy === s.key && styles.sortChipActive]}
+              onPress={() => handleSortByChange(s.key as SortBy)}
             >
-              <MaterialIcons name={s.icon as any} size={12} color={sortBy === s.key ? '#fff' : '#888'} />
+              <MaterialIcons name={s.icon as any} size={12} color={sortBy === s.key ? '#fff' : colors.textMuted} />
               <Text style={[styles.sortChipText, sortBy === s.key && styles.sortChipTextActive]}>{s.label}</Text>
             </TouchableOpacity>
           ))}
@@ -411,12 +443,12 @@ export default function GarageScreen() {
       )}
 
       {/* Search */}
-      <View style={styles.searchBar}>
-        <MaterialIcons name="search" size={18} color="#666" />
+      <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <MaterialIcons name="search" size={18} color={colors.textMuted} />
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: colors.text }]}
           placeholder="Search name, model, series..."
-          placeholderTextColor="#555"
+          placeholderTextColor={colors.textMuted}
           value={search}
           onChangeText={setSearch}
         />
@@ -490,31 +522,31 @@ export default function GarageScreen() {
       )}
 
       {/* Stats bar */}
-      <View style={styles.statsBar}>
+      <View style={[styles.statsBar, { backgroundColor: colors.surface, borderColor: colors.border, borderLeftColor: colors.border, borderRightColor: colors.border, borderTopColor: colors.border, borderBottomColor: colors.border }]}>
         <View style={styles.stat}>
           <MaterialCommunityIcons name="car" size={16} color="#e63946" />
-          <Text style={styles.statValue}>{filtered.length}</Text>
-          <Text style={styles.statLabel}>Cars</Text>
+          <Text style={[styles.statValue, { color: colors.text }]}>{filtered.length}</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>Cars</Text>
         </View>
-        <View style={styles.statDivider} />
+        <View style={[styles.statDivider, { backgroundColor: colors.borderLight }]} />
         <View style={styles.stat}>
-          <MaterialIcons name="account-balance-wallet" size={16} color="#888" />
-          <Text style={styles.statValue}>₹{totalSpent.toLocaleString('en-IN')}</Text>
-          <Text style={styles.statLabel}>Spent</Text>
+          <MaterialIcons name="account-balance-wallet" size={16} color={colors.textMuted} />
+          <Text style={[styles.statValue, { color: colors.text }]}>₹{totalSpent.toLocaleString('en-IN')}</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>Spent</Text>
         </View>
-        <View style={styles.statDivider} />
+        <View style={[styles.statDivider, { backgroundColor: colors.borderLight }]} />
         <View style={styles.stat}>
           <MaterialIcons name="trending-up" size={16} color="#4caf50" />
           <Text style={[styles.statValue, { color: '#4caf50' }]}>₹{totalValue.toLocaleString('en-IN')}</Text>
-          <Text style={styles.statLabel}>Value</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>Value</Text>
         </View>
-        <View style={styles.statDivider} />
+        <View style={[styles.statDivider, { backgroundColor: colors.borderLight }]} />
         <View style={styles.stat}>
           <MaterialIcons name="show-chart" size={16} color="#42A5F5" />
           <Text style={[styles.statValue, { color: '#42A5F5' }]}>
             {totalSpent > 0 ? `${Math.round(((totalValue - totalSpent) / totalSpent) * 100)}%` : '—'}
           </Text>
-          <Text style={styles.statLabel}>ROI</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>ROI</Text>
         </View>
       </View>
 
@@ -533,9 +565,9 @@ export default function GarageScreen() {
         }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <MaterialCommunityIcons name="car-off" size={56} color="#2a2a4a" />
-            <Text style={styles.emptyTitle}>No cars found</Text>
-            <Text style={styles.emptyDesc}>
+            <MaterialCommunityIcons name="car-off" size={56} color={colors.border} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>No cars found</Text>
+            <Text style={[styles.emptyDesc, { color: colors.textMuted }]}>
               {hasActiveFilters ? 'Try adjusting your filters' : 'Scan a car or add one manually'}
             </Text>
             {!hasActiveFilters && (
@@ -553,7 +585,7 @@ export default function GarageScreen() {
 
       {/* Peg Hunt Checklist Modal */}
       {showPegHunt && (
-        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0f0f23', zIndex: 100 }}>
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.background, zIndex: 100 }}>
           <PegHuntChecklist onClose={() => setShowPegHunt(false)} />
         </View>
       )}

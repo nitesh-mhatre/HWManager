@@ -11,6 +11,7 @@ import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { getAllCars, getCaseCodes } from '../services/storage';
 import { HotWheelCar } from '../types';
 import { useFocusEffect } from 'expo-router';
+import { useTheme } from '../context/ThemeContext';
 
 interface Props {
   onClose: () => void;
@@ -25,6 +26,7 @@ export default function PegHuntChecklist({ onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
+  const { colors } = useTheme();
 
   useFocusEffect(
     useCallback(() => {
@@ -74,27 +76,27 @@ export default function PegHuntChecklist({ onClose }: Props) {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color="#e63946" />
-        <Text style={styles.loadingText}>Loading checklist...</Text>
+        <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading checklist...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <MaterialCommunityIcons name="map-marker-check" size={24} color="#FFD700" />
-          <Text style={styles.headerTitle}>Peg Hunt Checklist</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Peg Hunt Checklist</Text>
         </View>
-        <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-          <MaterialIcons name="close" size={22} color="#888" />
+        <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <MaterialIcons name="close" size={22} color={colors.textMuted} />
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.headerSub}>Filter by case letter — check off cars while hunting</Text>
+      <Text style={[styles.headerSub, { color: colors.textMuted }]}>Filter by case letter — check off cars while hunting</Text>
 
       {/* Case Code Picker */}
       {caseCodes.length > 0 && (
@@ -102,10 +104,10 @@ export default function PegHuntChecklist({ onClose }: Props) {
           {caseCodes.map((code) => (
             <TouchableOpacity
               key={code}
-              style={[styles.caseChip, selectedCase === code && styles.caseChipActive]}
+              style={[styles.caseChip, { backgroundColor: colors.surface, borderColor: colors.border }, selectedCase === code && styles.caseChipActive]}
               onPress={() => setSelectedCase(code)}
             >
-              <Text style={[styles.caseChipText, selectedCase === code && styles.caseChipTextActive]}>
+              <Text style={[styles.caseChipText, { color: colors.textMuted }, selectedCase === code && styles.caseChipTextActive]}>
                 Case {code}
               </Text>
             </TouchableOpacity>
@@ -114,34 +116,34 @@ export default function PegHuntChecklist({ onClose }: Props) {
       )}
 
       {caseCodes.length === 0 && (
-        <View style={styles.emptyCase}>
-          <MaterialIcons name="info-outline" size={16} color="#888" />
-          <Text style={styles.emptyCaseText}>
+        <View style={[styles.emptyCase, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <MaterialIcons name="info-outline" size={16} color={colors.textMuted} />
+          <Text style={[styles.emptyCaseText, { color: colors.textMuted }]}>
             No case codes found. Add case codes to your cars in the car detail page.
           </Text>
         </View>
       )}
 
       {/* Stats bar */}
-      <View style={styles.statsBar}>
+      <View style={[styles.statsBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.statItem}>
-          <Text style={styles.statValue}>{counts.total}</Text>
-          <Text style={styles.statLabel}>Total</Text>
+          <Text style={[styles.statValue, { color: colors.text }]}>{counts.total}</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>Total</Text>
         </View>
-        <View style={styles.statDivider} />
+        <View style={[styles.statDivider, { backgroundColor: colors.borderLight }]} />
         <View style={styles.statItem}>
           <Text style={[styles.statValue, { color: '#4caf50' }]}>{counts.have}</Text>
-          <Text style={styles.statLabel}>Have</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>Have</Text>
         </View>
-        <View style={styles.statDivider} />
+        <View style={[styles.statDivider, { backgroundColor: colors.borderLight }]} />
         <View style={styles.statItem}>
           <Text style={[styles.statValue, { color: '#FFD700' }]}>{counts.want}</Text>
-          <Text style={styles.statLabel}>Want</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>Want</Text>
         </View>
-        <View style={styles.statDivider} />
+        <View style={[styles.statDivider, { backgroundColor: colors.borderLight }]} />
         <View style={styles.statItem}>
           <Text style={[styles.statValue, { color: '#42A5F5' }]}>{checkedItems.size}</Text>
-          <Text style={styles.statLabel}>Checked</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>Checked</Text>
         </View>
       </View>
 
@@ -150,15 +152,15 @@ export default function PegHuntChecklist({ onClose }: Props) {
         {(['all', 'have', 'want'] as FilterStatus[]).map((s) => (
           <TouchableOpacity
             key={s}
-            style={[styles.statusChip, statusFilter === s && styles.statusChipActive]}
+            style={[styles.statusChip, { backgroundColor: colors.surface, borderColor: colors.border }, statusFilter === s && styles.statusChipActive]}
             onPress={() => setStatusFilter(s)}
           >
             <MaterialIcons
               name={s === 'all' ? 'apps' : s === 'have' ? 'check-circle' : 'star'}
               size={12}
-              color={statusFilter === s ? '#fff' : '#888'}
+              color={statusFilter === s ? '#fff' : colors.textMuted}
             />
-            <Text style={[styles.statusChipText, statusFilter === s && styles.statusChipTextActive]}>
+            <Text style={[styles.statusChipText, { color: colors.textMuted }, statusFilter === s && styles.statusChipTextActive]}>
               {s.charAt(0).toUpperCase() + s.slice(1)}
             </Text>
           </TouchableOpacity>
@@ -170,10 +172,10 @@ export default function PegHuntChecklist({ onClose }: Props) {
         {filteredCars.length === 0 ? (
           <View style={styles.empty}>
             <MaterialCommunityIcons name="car-off" size={40} color="#2a2a4a" />
-            <Text style={styles.emptyTitle}>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>
               {caseCodes.length === 0 ? 'No case codes set' : 'No cars in this case'}
             </Text>
-            <Text style={styles.emptyDesc}>
+            <Text style={[styles.emptyDesc, { color: colors.textMuted }]}>
               {caseCodes.length === 0
                 ? 'Add case codes to your cars to use the checklist'
                 : 'Add cars with case code "' + selectedCase + '" to see them here'}
@@ -186,26 +188,20 @@ export default function PegHuntChecklist({ onClose }: Props) {
             return (
               <TouchableOpacity
                 key={car.id}
-                style={[styles.checkItem, isChecked && styles.checkItemChecked]}
+                style={[styles.checkItem, { backgroundColor: colors.surface, borderColor: colors.border }, isChecked && styles.checkItemChecked]}
                 onPress={() => toggleCheck(car.id)}
               >
-                <View style={[styles.checkbox, isChecked && styles.checkboxChecked]}>
+                <View style={[styles.checkbox, { borderColor: colors.borderLight }, isChecked && styles.checkboxChecked]}>
                   {isChecked && <MaterialIcons name="check" size={16} color="#fff" />}
                 </View>
-                {car.images && car.images.length > 0 ? (
-                  <View style={styles.itemThumb}>
-                    <MaterialCommunityIcons name="car" size={20} color="#333" />
-                  </View>
-                ) : (
-                  <View style={styles.itemThumb}>
-                    <MaterialCommunityIcons name="car" size={20} color="#333" />
-                  </View>
-                )}
+                <View style={[styles.itemThumb, { backgroundColor: colors.surfaceAlt }] }>
+                  <MaterialCommunityIcons name="car" size={20} color={colors.textMuted} />
+                </View>
                 <View style={styles.itemInfo}>
-                  <Text style={[styles.itemName, isChecked && styles.itemNameChecked]} numberOfLines={1}>
+                  <Text style={[styles.itemName, { color: colors.text }, isChecked && styles.itemNameChecked]} numberOfLines={1}>
                     {car.name}
                   </Text>
-                  <Text style={styles.itemMeta} numberOfLines={1}>
+                  <Text style={[styles.itemMeta, { color: colors.textMuted }]} numberOfLines={1}>
                     {car.year} · {car.color} · {car.toyNumber || 'No toy #'}
                   </Text>
                 </View>

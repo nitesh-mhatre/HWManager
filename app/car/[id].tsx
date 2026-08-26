@@ -21,11 +21,15 @@ import { getAllCars, updateCar, deleteCar, addPurchaseToCar, addSaleToCar, compu
 import { HotWheelCar, PurchaseEntry, SaleEntry } from '../../src/types';
 import { searchCarValue } from '../../src/services/nvidia';
 import { getSettings } from '../../src/services/storage';
+import { useTheme } from '../../src/context/ThemeContext';
+import { getAppStyles } from '../../src/styles/themeStyles';
 import AdBanner from '../../src/components/AdBanner';
 
 export default function CarDetailScreen() {
   const { id, source } = useLocalSearchParams<{ id: string; source: string }>();
   const router = useRouter();
+  const { colors } = useTheme();
+  const appStyles = getAppStyles(colors);
   const [car, setCar] = useState<HotWheelCar | null>(null);
   const [editing, setEditing] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -97,10 +101,17 @@ export default function CarDetailScreen() {
   const [toyNumber, setToyNumber] = useState('');
   const [variationText, setVariationText] = useState('');
 
+  // Load sibling cars on mount, then find starting index
   useEffect(() => {
-    loadCar();
     loadSiblings();
-  }, [id]);
+  }, []);
+
+  // When siblingIndex changes (or siblings loaded), load the car at that index
+  useEffect(() => {
+    if (siblingCars.length > 0 && siblingIndex >= 0 && siblingIndex < siblingCars.length) {
+      loadCarFromSibling(siblingCars[siblingIndex]);
+    }
+  }, [siblingIndex, siblingCars]);
 
   const loadSiblings = async () => {
     const list = source === 'wishlist' ? await getWishlist() : await getGarage();
@@ -110,21 +121,52 @@ export default function CarDetailScreen() {
     setSiblingIndex(idx >= 0 ? idx : 0);
   };
 
-  const navigateToCar = (carId: string) => {
-    router.replace({ pathname: '/car/[id]', params: { id: carId, source: source || 'garage' } });
+  // Populate editable fields from a car object
+  const loadCarFromSibling = (found: HotWheelCar) => {
+    setCar(found);
+    setName(found.name);
+    setYear(found.year);
+    setSeries(found.series);
+    setColor(found.color);
+    setModel(found.model);
+    setRarity(found.rarity);
+    setCondition(found.condition);
+    setBuyPrice(found.buyPrice.toString());
+    setExpectedPrice(found.expectedPrice.toString());
+    setRemarks(found.remarks);
+    setInCollection(found.inCollection);
+    setStorageLocation(found.storageLocation || '');
+    setAllocation(found.allocation || 'personal');
+    setCardCondition(found.cardCondition || '');
+    setPackaging(found.packaging || '');
+    setCaseCode(found.caseCode || '');
+    setToyNumber(found.toyNumber || '');
+    setVariationText((found.variations || []).join(', '));
+    if (found.isSold) {
+      setSoldPrice(found.soldPrice?.toString() || '');
+      setSoldPlatform(found.soldPlatform || '');
+      setSoldNotes(found.soldNotes || '');
+    }
+    setNewImageUri(null);
+    setEditing(false);
+    // Duplicate analysis
+    analyzeDuplicateDetails(found.name, found.model, found.year, found.color).then(setDupeAnalysis);
   };
 
-  const goToPrev = () => {
-    if (siblingIndex > 0) {
-      navigateToCar(siblingCars[siblingIndex - 1].id);
+  const goToPrev = useCallback(() => {
+    const idx = siblingIndexRef.current;
+    if (idx > 0) {
+      setSiblingIndex(idx - 1);
     }
-  };
+  }, []);
 
-  const goToNext = () => {
-    if (siblingIndex < siblingCars.length - 1) {
-      navigateToCar(siblingCars[siblingIndex + 1].id);
+  const goToNext = useCallback(() => {
+    const idx = siblingIndexRef.current;
+    const siblings = siblingCarsRef.current;
+    if (idx < siblings.length - 1) {
+      setSiblingIndex(idx + 1);
     }
-  };
+  }, []);
 
   // Swipe gesture — uses refs to avoid stale closures
   const panResponder = useRef(
@@ -178,37 +220,8 @@ export default function CarDetailScreen() {
   ).current;
 
   const loadCar = async () => {
-    const cars = await getAllCars();
-    const found = cars.find((c) => c.id === id);
-    if (found) {
-      setCar(found);
-      setName(found.name);
-      setYear(found.year);
-      setSeries(found.series);
-      setColor(found.color);
-      setModel(found.model);
-      setRarity(found.rarity);
-      setCondition(found.condition);
-      setBuyPrice(found.buyPrice.toString());
-      setExpectedPrice(found.expectedPrice.toString());
-      setRemarks(found.remarks);
-      setInCollection(found.inCollection);
-      setStorageLocation(found.storageLocation || '');
-      setAllocation(found.allocation || 'personal');
-      setCardCondition(found.cardCondition || '');
-      setPackaging(found.packaging || '');
-      setCaseCode(found.caseCode || '');
-      setToyNumber(found.toyNumber || '');
-      setVariationText((found.variations || []).join(', '));
-      if (found.isSold) {
-        setSoldPrice(found.soldPrice?.toString() || '');
-        setSoldPlatform(found.soldPlatform || '');
-        setSoldNotes(found.soldNotes || '');
-      }
-      // Load duplicate analysis
-      const analysis = await analyzeDuplicateDetails(found.name, found.model, found.year, found.color);
-      setDupeAnalysis(analysis);
-    }
+    // Reload siblings to refresh data after save/delete
+    await loadSiblings();
   };
 
   const pickNewImage = async (useCamera: boolean) => {
@@ -412,36 +425,36 @@ export default function CarDetailScreen() {
 
   if (!car) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.loadingText}>Loading...</Text>
+      <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={[styles.loadingText, appStyles.textSecondary]}>Loading...</Text>
       </View>
     );
   }
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Animated.View
-        style={[styles.container, { transform: [{ translateX }] }]}
+        style={[styles.container, { backgroundColor: colors.background, transform: [{ translateX }] }]}
         {...panResponder.panHandlers}
       >
       <ScrollView contentContainerStyle={styles.scroll}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <MaterialIcons name="arrow-back" size={24} color="#4da6ff" />
+          <TouchableOpacity style={[styles.backButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => router.back()}>
+            <MaterialIcons name="arrow-back" size={24} color={colors.info} />
           </TouchableOpacity>
           <View style={styles.headerActions}>
             <TouchableOpacity
-              style={styles.editButton}
+              style={[styles.editButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
               onPress={() => setEditing(!editing)}
             >
-              <MaterialIcons name={editing ? "close" : "edit"} size={18} color="#fff" />
-              <Text style={styles.editButtonText}>{editing ? 'Cancel' : 'Edit'}</Text>
+              <MaterialIcons name={editing ? "close" : "edit"} size={18} color={editing ? colors.text : colors.info} />
+              <Text style={[styles.editButtonText, { color: editing ? colors.text : colors.info }]}>{editing ? 'Cancel' : 'Edit'}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
+            <TouchableOpacity style={[styles.deleteButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={handleDelete}>
               <MaterialIcons name="delete" size={18} color="#e63946" />
             </TouchableOpacity>
           </View>
@@ -449,7 +462,7 @@ export default function CarDetailScreen() {
 
         {/* Swipe Navigation Bar */}
         {siblingCars.length > 1 && (
-          <View style={styles.swipeNavBar}>
+          <View style={[styles.swipeNavBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <TouchableOpacity
               style={[styles.swipeNavBtn, siblingIndex === 0 && styles.swipeNavBtnDisabled]}
               onPress={goToPrev}
@@ -508,14 +521,14 @@ export default function CarDetailScreen() {
         )}
 
         {/* Collection toggle */}
-        <View style={styles.toggleRow}>
+        <View style={[styles.toggleRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.toggleLabelContainer}>
             {car.inCollection ? (
               <MaterialCommunityIcons name="car" size={18} color="#4caf50" />
             ) : (
               <MaterialIcons name="star" size={18} color="#FFD700" />
             )}
-            <Text style={styles.toggleLabel}>
+            <Text style={[styles.toggleLabel, appStyles.textPrimary]}>
               {car.inCollection ? 'In Garage' : 'In Wishlist'}
             </Text>
           </View>
@@ -531,30 +544,30 @@ export default function CarDetailScreen() {
         {!editing && car.inCollection && (() => {
           const stats = computeCarStats(car);
           return (
-            <View style={styles.inventoryCard}>
+            <View style={[styles.inventoryCard, appStyles.card]}>
               <View style={styles.inventoryHeader}>
                 <MaterialCommunityIcons name="package-variant" size={18} color="#FFD700" />
-                <Text style={styles.inventoryTitle}>Inventory</Text>
+                <Text style={[styles.inventoryTitle, { color: '#FFD700' }]}>Inventory</Text>
                 <View style={styles.qtyBadge}>
                   <Text style={styles.qtyBadgeText}>{stats.inStock} in stock</Text>
                 </View>
               </View>
               <View style={styles.inventoryGrid}>
-                <View style={styles.inventoryStat}>
-                  <Text style={styles.inventoryStatValue}>{stats.totalPurchased}</Text>
-                  <Text style={styles.inventoryStatLabel}>Bought</Text>
+                <View style={[styles.inventoryStat, { backgroundColor: colors.inputBg }]}>
+                  <Text style={[styles.inventoryStatValue, appStyles.textPrimary]}>{stats.totalPurchased}</Text>
+                  <Text style={[styles.inventoryStatLabel, appStyles.textSecondary]}>Bought</Text>
                 </View>
-                <View style={styles.inventoryStat}>
-                  <Text style={styles.inventoryStatValue}>{stats.totalSold}</Text>
-                  <Text style={styles.inventoryStatLabel}>Sold</Text>
+                <View style={[styles.inventoryStat, { backgroundColor: colors.inputBg }]}>
+                  <Text style={[styles.inventoryStatValue, appStyles.textPrimary]}>{stats.totalSold}</Text>
+                  <Text style={[styles.inventoryStatLabel, appStyles.textSecondary]}>Sold</Text>
                 </View>
-                <View style={styles.inventoryStat}>
-                  <Text style={[styles.inventoryStatValue, { color: '#4da6ff' }]}>₹{stats.totalInvested.toLocaleString('en-IN')}</Text>
-                  <Text style={styles.inventoryStatLabel}>Total Invested</Text>
+                <View style={[styles.inventoryStat, { backgroundColor: colors.inputBg }]}>
+                  <Text style={[styles.inventoryStatValue, { color: colors.info }]}>₹{stats.totalInvested.toLocaleString('en-IN')}</Text>
+                  <Text style={[styles.inventoryStatLabel, appStyles.textSecondary]}>Total Invested</Text>
                 </View>
-                <View style={styles.inventoryStat}>
-                  <Text style={[styles.inventoryStatValue, { color: '#4caf50' }]}>₹{stats.totalRevenue.toLocaleString('en-IN')}</Text>
-                  <Text style={styles.inventoryStatLabel}>Revenue</Text>
+                <View style={[styles.inventoryStat, { backgroundColor: colors.inputBg }]}>
+                  <Text style={[styles.inventoryStatValue, { color: colors.success }]}>₹{stats.totalRevenue.toLocaleString('en-IN')}</Text>
+                  <Text style={[styles.inventoryStatLabel, appStyles.textSecondary]}>Revenue</Text>
                 </View>
               </View>
               {stats.totalSold > 0 && stats.totalRevenue > 0 && (
@@ -566,7 +579,7 @@ export default function CarDetailScreen() {
                   </Text>
                 </View>
               )}
-              <Text style={styles.inventoryAvg}>Avg Buy: ₹{stats.avgBuyPrice.toLocaleString('en-IN')}  ·  Avg Sell: ₹{stats.avgSellPrice.toLocaleString('en-IN')}  ·  COGS: ₹{stats.cogs.toLocaleString('en-IN')}</Text>
+              <Text style={[styles.inventoryAvg, appStyles.textMuted]}>Avg Buy: ₹{stats.avgBuyPrice.toLocaleString('en-IN')}  ·  Avg Sell: ₹{stats.avgSellPrice.toLocaleString('en-IN')}  ·  COGS: ₹{stats.cogs.toLocaleString('en-IN')}</Text>
               {/* Duplicate Count */}
               {dupeAnalysis && dupeAnalysis.sameColorCount > 1 && (
                 <View style={styles.dupeCountRow}>
@@ -577,8 +590,7 @@ export default function CarDetailScreen() {
                   </Text>
                 </View>
               )}
-              {/* Add Purchase Button */}
-              <TouchableOpacity style={styles.addPurchaseBtn} onPress={() => setShowPurchaseModal(true)}>
+              {/* Add Purchase Button */}                <TouchableOpacity style={[styles.addPurchaseBtn, { backgroundColor: colors.primary }]} onPress={() => setShowPurchaseModal(true)}>
                 <MaterialIcons name="add-circle" size={18} color="#fff" />
                 <Text style={styles.addPurchaseBtnText}>Add New Purchase</Text>
               </TouchableOpacity>
@@ -588,10 +600,10 @@ export default function CarDetailScreen() {
 
         {/* ===== PURCHASE HISTORY ===== */}
         {!editing && car.purchaseHistory && car.purchaseHistory.length > 0 && (
-          <View style={styles.historyCard}>
+          <View style={[styles.historyCard, { backgroundColor: colors.surface }]}>
             <View style={styles.historyCardHeader}>
               <MaterialIcons name="receipt-long" size={18} color="#4da6ff" />
-              <Text style={styles.historyCardTitle}>Purchase History</Text>
+              <Text style={[styles.historyCardTitle, { color: colors.info }]}>Purchase History</Text>
               <View style={styles.historyCountBadge}>
                 <Text style={styles.historyCountText}>{car.purchaseHistory.length}</Text>
               </View>
@@ -599,13 +611,13 @@ export default function CarDetailScreen() {
             {car.purchaseHistory.map((p, idx) => (
               <View key={p.id || idx} style={styles.historyEntry}>
                 <View style={styles.historyEntryLeft}>
-                  <Text style={styles.historyEntryDate}>{new Date(p.date).toLocaleDateString('en-IN')}</Text>
-                  <Text style={styles.historyEntrySource}>{p.source || 'Unknown'} · {p.condition || 'Mint'}</Text>
-                  {p.notes ? <Text style={styles.historyEntryNotes}>{p.notes}</Text> : null}
+                  <Text style={[styles.historyEntryDate, appStyles.textPrimary]}>{new Date(p.date).toLocaleDateString('en-IN')}</Text>
+                  <Text style={[styles.historyEntrySource, appStyles.textSecondary]}>{p.source || 'Unknown'} · {p.condition || 'Mint'}</Text>
+                  {p.notes ? <Text style={[styles.historyEntryNotes, appStyles.textMuted]}>{p.notes}</Text> : null}
                 </View>
                 <View style={styles.historyEntryRight}>
-                  <Text style={styles.historyEntryPrice}>₹{p.buyPrice.toLocaleString('en-IN')}</Text>
-                  <Text style={styles.historyEntryQty}>x{p.quantity || 1}</Text>
+                  <Text style={[styles.historyEntryPrice, appStyles.textPrimary]}>₹{p.buyPrice.toLocaleString('en-IN')}</Text>
+                  <Text style={[styles.historyEntryQty, appStyles.textSecondary]}>x{p.quantity || 1}</Text>
                 </View>
               </View>
             ))}
@@ -614,10 +626,10 @@ export default function CarDetailScreen() {
 
         {/* ===== SALE HISTORY ===== */}
         {!editing && car.saleHistory && car.saleHistory.length > 0 && (
-          <View style={styles.historyCard}>
+          <View style={[styles.historyCard, { backgroundColor: colors.surface }]}>
             <View style={styles.historyCardHeader}>
               <MaterialIcons name="sell" size={18} color="#4caf50" />
-              <Text style={styles.historyCardTitle}>Sale History</Text>
+              <Text style={[styles.historyCardTitle, { color: colors.info }]}>Sale History</Text>
               <View style={[styles.historyCountBadge, { backgroundColor: 'rgba(76, 175, 80, 0.2)' }]}>
                 <Text style={[styles.historyCountText, { color: '#4caf50' }]}>{car.saleHistory.length}</Text>
               </View>
@@ -625,13 +637,13 @@ export default function CarDetailScreen() {
             {car.saleHistory.map((s, idx) => (
               <View key={s.id || idx} style={styles.historyEntry}>
                 <View style={styles.historyEntryLeft}>
-                  <Text style={styles.historyEntryDate}>{new Date(s.date).toLocaleDateString('en-IN')}</Text>
-                  <Text style={styles.historyEntrySource}>{s.platform || 'Unknown'}{s.buyerInfo ? ` · ${s.buyerInfo}` : ''}</Text>
-                  {s.notes ? <Text style={styles.historyEntryNotes}>{s.notes}</Text> : null}
+                  <Text style={[styles.historyEntryDate, appStyles.textPrimary]}>{new Date(s.date).toLocaleDateString('en-IN')}</Text>
+                  <Text style={[styles.historyEntrySource, appStyles.textSecondary]}>{s.platform || 'Unknown'}{s.buyerInfo ? ` · ${s.buyerInfo}` : ''}</Text>
+                  {s.notes ? <Text style={[styles.historyEntryNotes, appStyles.textMuted]}>{s.notes}</Text> : null}
                 </View>
                 <View style={styles.historyEntryRight}>
                   <Text style={[styles.historyEntryPrice, { color: '#4caf50' }]}>₹{s.soldPrice.toLocaleString('en-IN')}</Text>
-                  <Text style={styles.historyEntryQty}>x{s.quantity || 1}</Text>
+                  <Text style={[styles.historyEntryQty, appStyles.textSecondary]}>x{s.quantity || 1}</Text>
                 </View>
               </View>
             ))}
@@ -639,7 +651,7 @@ export default function CarDetailScreen() {
         )}
 
         {/* Details card */}
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           {editing ? (
             <>
               <Field label="Name" value={name} onChange={setName} icon="edit" />
@@ -675,7 +687,7 @@ export default function CarDetailScreen() {
                     style={[styles.allocChip, allocation === a && styles.allocChipActive]}
                     onPress={() => setAllocation(a)}
                   >
-                    <MaterialIcons name={a === 'personal' ? 'favorite' : a === 'trade' ? 'swap-horiz' : 'sell'} size={14} color={allocation === a ? '#fff' : '#888'} />
+                    <MaterialIcons name={a === 'personal' ? 'favorite' : a === 'trade' ? 'swap-horiz' : 'sell'} size={14} color={allocation === a ? colors.text : colors.textSecondary} />
                     <Text style={[styles.allocChipText, allocation === a && styles.allocChipTextActive]}>
                       {a === 'forSale' ? 'For Sale' : a.charAt(0).toUpperCase() + a.slice(1)}
                     </Text>
@@ -685,8 +697,8 @@ export default function CarDetailScreen() {
             </>
           ) : (
             <>
-              <Text style={styles.carName}>{car.name}</Text>
-              <Text style={styles.carSub}>{car.year} · {car.model || car.name}</Text>
+              <Text style={[styles.carName, appStyles.textPrimary]}>{car.name}</Text>
+              <Text style={[styles.carSub, appStyles.textSecondary]}>{car.year} · {car.model || car.name}</Text>
               <View style={styles.tags}>
                 {car.rarity ? (
                   <View style={[styles.tag, car.rarity.toLowerCase().includes('super') ? styles.tagSuperTH : car.rarity.toLowerCase().includes('treasure') ? styles.tagTH : styles.tagMainline]}>
@@ -772,42 +784,42 @@ export default function CarDetailScreen() {
                   </View>
                   <View style={styles.priceRangeRow}>
                     <View style={styles.priceRangeBox}>
-                      <Text style={styles.priceRangeLabel}>Low</Text>
-                      <Text style={styles.priceRangeValue}>₹{car.priceRange.min.toLocaleString('en-IN')}</Text>
+                      <Text style={[styles.priceRangeLabel, appStyles.textMuted]}>Low</Text>
+                      <Text style={[styles.priceRangeValue, appStyles.textPrimary]}>₹{car.priceRange.min.toLocaleString('en-IN')}</Text>
                     </View>
                     <MaterialIcons name="arrow-forward" size={16} color="#555" />
                     <View style={styles.priceRangeBox}>
-                      <Text style={styles.priceRangeLabel}>Avg</Text>
+                      <Text style={[styles.priceRangeLabel, appStyles.textMuted]}>Avg</Text>
                       <Text style={[styles.priceRangeValue, { color: '#4caf50' }]}>₹{car.priceRange.avg.toLocaleString('en-IN')}</Text>
                     </View>
                     <MaterialIcons name="arrow-forward" size={16} color="#555" />
                     <View style={styles.priceRangeBox}>
-                      <Text style={styles.priceRangeLabel}>High</Text>
-                      <Text style={styles.priceRangeValue}>₹{car.priceRange.max.toLocaleString('en-IN')}</Text>
+                      <Text style={[styles.priceRangeLabel, appStyles.textMuted]}>High</Text>
+                      <Text style={[styles.priceRangeValue, appStyles.textPrimary]}>₹{car.priceRange.max.toLocaleString('en-IN')}</Text>
                     </View>
                   </View>
                 </View>
               )}
 
               <View style={styles.priceSection}>
-                <View style={styles.priceBox}>
+                <View style={[styles.priceBox, { backgroundColor: colors.inputBg }]}>
                   <MaterialIcons name="attach-money" size={16} color="#888" />
-                  <Text style={styles.priceLabel}>Paid</Text>
-                  <Text style={styles.priceValue}>
+                  <Text style={[styles.priceLabel, appStyles.textMuted]}>Paid</Text>
+                  <Text style={[styles.priceValue, { color: colors.info }]}>
                     ₹{car.buyPrice > 0 ? car.buyPrice.toLocaleString('en-IN') : '—'}
                   </Text>
                 </View>
-                <View style={styles.priceBox}>
+                <View style={[styles.priceBox, { backgroundColor: colors.inputBg }]}>
                   <MaterialIcons name="trending-up" size={16} color="#4caf50" />
-                  <Text style={styles.priceLabel}>Market Value</Text>
+                  <Text style={[styles.priceLabel, appStyles.textMuted]}>Market Value</Text>
                   <Text style={[styles.priceValue, { color: '#4caf50' }]}>
                     ₹{(car.priceINR || car.expectedPrice) > 0 ? (car.priceINR || car.expectedPrice).toLocaleString('en-IN') : '—'}
                   </Text>
                 </View>
                 {car.buyPrice > 0 && (car.priceINR || car.expectedPrice) > 0 && (
-                  <View style={styles.priceBox}>
+                  <View style={[styles.priceBox, { backgroundColor: colors.inputBg }]}>
                     <MaterialIcons name="show-chart" size={16} color="#888" />
-                    <Text style={styles.priceLabel}>ROI</Text>
+                    <Text style={[styles.priceLabel, appStyles.textMuted]}>ROI</Text>
                     <Text
                       style={[
                         styles.priceValue,
@@ -822,17 +834,17 @@ export default function CarDetailScreen() {
 
               {/* Price Sources - Collector References */}
               {car.priceSources && car.priceSources.length > 0 && (
-                <View style={styles.priceSourcesCard}>
+                <View style={[styles.priceSourcesCard, { backgroundColor: colors.inputBg }]}>
                   <View style={styles.priceSourcesHeader}>
                     <MaterialIcons name="verified" size={16} color="#4da6ff" />
-                    <Text style={styles.priceSourcesTitle}>Collector References</Text>
+                    <Text style={[styles.priceSourcesTitle, { color: colors.info }]}>Collector References</Text>
                   </View>
                   {car.priceSources.map((source, idx) => (
                     <View key={idx} style={styles.priceSourceRow}>
                       <View style={styles.priceSourceLeft}>
-                        <Text style={styles.priceSourceStore}>{source.source || 'Collector'}</Text>
+                        <Text style={[styles.priceSourceStore, appStyles.textPrimary]}>{source.source || 'Collector'}</Text>
                         {source.reference ? (
-                          <Text style={styles.priceSourceRef}>{source.reference}</Text>
+                          <Text style={[styles.priceSourceRef, appStyles.textMuted]}>{source.reference}</Text>
                         ) : null}
                       </View>
                       <Text style={styles.priceSourcePrice}>₹{source.price.toLocaleString('en-IN')}</Text>
@@ -842,22 +854,22 @@ export default function CarDetailScreen() {
               )}
 
               {car.history ? (
-                <View style={styles.historySection}>
+                <View style={[styles.historySection, { backgroundColor: colors.surface }]}>
                   <View style={styles.historyHeader}>
                     <MaterialIcons name="history-edu" size={16} color="#FFD700" />
                     <Text style={styles.historyTitle}>Car History & Background</Text>
                   </View>
-                  <Text style={styles.historyText}>{car.history}</Text>
+                  <Text style={[styles.historyText, appStyles.textSecondary]}>{car.history}</Text>
                 </View>
               ) : null}
 
               {car.remarks ? (
-                <View style={styles.remarksSection}>
+                <View style={[styles.remarksSection, { backgroundColor: colors.surface }]}>
                   <View style={styles.remarksHeader}>
                     <MaterialIcons name="notes" size={16} color="#4da6ff" />
                     <Text style={styles.remarksTitle}>Market Info</Text>
                   </View>
-                  <Text style={styles.remarksText}>{car.remarks}</Text>
+                  <Text style={[styles.remarksText, appStyles.textSecondary]}>{car.remarks}</Text>
                 </View>
               ) : null}
             </>
@@ -871,42 +883,42 @@ export default function CarDetailScreen() {
               <MaterialIcons name="check-circle" size={22} color="#4caf50" />
               <Text style={styles.soldBannerTitle}>SOLD</Text>
               <TouchableOpacity onPress={handleUndoSold}>
-                <Text style={styles.undoSoldText}>Undo</Text>
+                <Text style={[styles.undoSoldText, appStyles.textSecondary]}>Undo</Text>
               </TouchableOpacity>
             </View>
             <View style={styles.soldBannerDetails}>
               <View style={styles.soldDetailRow}>
-                <Text style={styles.soldDetailLabel}>Sold For</Text>
-                <Text style={styles.soldDetailValue}>₹{car.soldPrice.toLocaleString('en-IN')}</Text>
+                <Text style={[styles.soldDetailLabel, appStyles.textSecondary]}>Sold For</Text>
+                <Text style={[styles.soldDetailValue, appStyles.textPrimary]}>₹{car.soldPrice.toLocaleString('en-IN')}</Text>
               </View>
               <View style={styles.soldDetailRow}>
-                <Text style={styles.soldDetailLabel}>Buy Price</Text>
-                <Text style={styles.soldDetailValue}>₹{car.buyPrice.toLocaleString('en-IN')}</Text>
+                <Text style={[styles.soldDetailLabel, appStyles.textSecondary]}>Buy Price</Text>
+                <Text style={[styles.soldDetailValue, appStyles.textPrimary]}>₹{car.buyPrice.toLocaleString('en-IN')}</Text>
               </View>
               <View style={[styles.soldDetailRow, { borderTopWidth: 1, borderTopColor: '#333', paddingTop: 8, marginTop: 4 }]}>
-                <Text style={styles.soldDetailLabel}>Profit</Text>
+                <Text style={[styles.soldDetailLabel, appStyles.textSecondary]}>Profit</Text>
                 <Text style={[styles.soldDetailValue, { color: car.soldPrice >= car.buyPrice ? '#4caf50' : '#e63946', fontSize: 18, fontWeight: '900' }]}>                  {car.soldPrice >= car.buyPrice ? '+' : ''}₹{(car.soldPrice - car.buyPrice).toLocaleString('en-IN')}                </Text>
               </View>
               {car.buyPrice > 0 && (
                 <View style={styles.soldDetailRow}>
-                  <Text style={styles.soldDetailLabel}>ROI</Text>
+                  <Text style={[styles.soldDetailLabel, appStyles.textSecondary]}>ROI</Text>
                   <Text style={[styles.soldDetailValue, { color: car.soldPrice >= car.buyPrice ? '#4caf50' : '#e63946' }]}>                    {(((car.soldPrice - car.buyPrice) / car.buyPrice) * 100).toFixed(1)}%                  </Text>
                 </View>
               )}
               {car.soldPlatform ? (
                 <View style={styles.soldDetailRow}>
-                  <Text style={styles.soldDetailLabel}>Platform</Text>
-                  <Text style={styles.soldDetailValue}>{car.soldPlatform}</Text>
+                  <Text style={[styles.soldDetailLabel, appStyles.textSecondary]}>Platform</Text>
+                  <Text style={[styles.soldDetailValue, appStyles.textPrimary]}>{car.soldPlatform}</Text>
                 </View>
               ) : null}
               {car.soldDate ? (
                 <View style={styles.soldDetailRow}>
-                  <Text style={styles.soldDetailLabel}>Date</Text>
-                  <Text style={styles.soldDetailValue}>{new Date(car.soldDate).toLocaleDateString('en-IN')}</Text>
+                  <Text style={[styles.soldDetailLabel, appStyles.textSecondary]}>Date</Text>
+                  <Text style={[styles.soldDetailValue, appStyles.textPrimary]}>{new Date(car.soldDate).toLocaleDateString('en-IN')}</Text>
                 </View>
               ) : null}
               {car.soldNotes ? (
-                <Text style={styles.soldNotes}>{car.soldNotes}</Text>
+                <Text style={[styles.soldNotes, appStyles.textSecondary]}>{car.soldNotes}</Text>
               ) : null}
             </View>
           </View>
@@ -914,7 +926,7 @@ export default function CarDetailScreen() {
 
         {/* Action buttons */}
         {editing ? (
-          <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+          <TouchableOpacity style={[styles.saveButton, { backgroundColor: colors.primary }]} onPress={handleSave}>
             <MaterialIcons name="save" size={20} color="#fff" />
             <Text style={styles.saveButtonText}>Save Changes</Text>
           </TouchableOpacity>
@@ -923,32 +935,32 @@ export default function CarDetailScreen() {
             {/* Mark as Sold button */}
             {(!car.isSold || (car.quantity || 0) > 0) && (car.buyPrice > 0 || (car.purchaseHistory && car.purchaseHistory.length > 0)) && (
               <TouchableOpacity
-                style={styles.soldButton}
+                style={[styles.soldButton, { backgroundColor: colors.success }]}
                 onPress={() => setShowSaleModal(true)}
               >
                 <MaterialIcons name="sell" size={20} color="#fff" />
-                <Text style={styles.soldButtonText}>Record Sale</Text>
+                <Text style={[styles.soldButtonText, { color: '#fff' }]}>Record Sale</Text>
               </TouchableOpacity>
             )}
 
             {/* Add Purchase button (also available outside inventory card for quick access) */}
             {car.inCollection && !(car.purchaseHistory && car.purchaseHistory.length > 0) && (
               <TouchableOpacity
-                style={[styles.soldButton, { backgroundColor: '#1565C0' }]}
+                style={[styles.soldButton, { backgroundColor: colors.info }]}
                 onPress={() => setShowPurchaseModal(true)}
               >
                 <MaterialIcons name="add-circle" size={20} color="#fff" />
-                <Text style={styles.soldButtonText}>Add Purchase</Text>
+                <Text style={[styles.soldButtonText, { color: '#fff' }]}>Add Purchase</Text>
               </TouchableOpacity>
             )}
 
             <TouchableOpacity
-              style={styles.searchButton}
+              style={[styles.searchButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
               onPress={handleSearchValue}
               disabled={searching}
             >
               <MaterialIcons name="search" size={18} color="#4da6ff" />
-              <Text style={styles.searchButtonText}>
+              <Text style={[styles.searchButtonText, { color: colors.info }]}>
                 {searching ? 'Searching...' : 'Search Market Value (INR)'}
               </Text>
             </TouchableOpacity>
@@ -957,29 +969,29 @@ export default function CarDetailScreen() {
 
         {/* ===== SALE MODAL ===== */}
         {showSaleModal && (
-          <View style={styles.soldModalOverlay}>
-            <View style={styles.soldModal}>
+          <View style={[styles.soldModalOverlay, { backgroundColor: colors.overlay }]}>
+            <View style={[styles.soldModal, { backgroundColor: colors.surface }]}>
               <View style={styles.soldModalHeader}>
                 <MaterialIcons name="sell" size={24} color="#4caf50" />
-                <Text style={styles.soldModalTitle}>Record Sale</Text>
+                <Text style={[styles.soldModalTitle, { color: colors.success }]}>Record Sale</Text>
                 <TouchableOpacity onPress={() => setShowSaleModal(false)}>
                   <MaterialIcons name="close" size={22} color="#888" />
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.soldModalProfitPreview}>
-                <Text style={styles.soldModalProfitLabel}>In Stock: {car.quantity || 0}  ·  Avg Buy: ₹{car.buyPrice.toLocaleString('en-IN')}</Text>
+              <View style={[styles.soldModalProfitPreview, { backgroundColor: colors.inputBg }]}>
+                <Text style={[styles.soldModalProfitLabel, appStyles.textSecondary]}>In Stock: {car.quantity || 0}  ·  Avg Buy: ₹{car.buyPrice.toLocaleString('en-IN')}</Text>
               </View>
 
               <View style={styles.soldInputGroup}>
                 <View style={styles.soldInputLabelRow}>
                   <MaterialIcons name="attach-money" size={16} color="#4caf50" />
-                  <Text style={styles.soldInputLabel}>Sell Price per Unit (₹) *</Text>
+                  <Text style={[styles.soldInputLabel, appStyles.textSecondary]}>Sell Price per Unit (₹) *</Text>
                 </View>
                 <TextInput
-                  style={styles.soldInput}
+                  style={[styles.soldInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                   placeholder="Enter sell price"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   value={salePrice}
                   onChangeText={setSalePrice}
                   keyboardType="decimal-pad"
@@ -990,12 +1002,12 @@ export default function CarDetailScreen() {
               <View style={styles.soldInputGroup}>
                 <View style={styles.soldInputLabelRow}>
                   <MaterialIcons name="numbers" size={16} color="#42A5F5" />
-                  <Text style={styles.soldInputLabel}>Quantity to Sell</Text>
+                  <Text style={[styles.soldInputLabel, appStyles.textSecondary]}>Quantity to Sell</Text>
                 </View>
                 <TextInput
-                  style={styles.soldInput}
+                  style={[styles.soldInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                   placeholder={`Max: ${car.quantity || 0}`}
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   value={saleQty}
                   onChangeText={setSaleQty}
                   keyboardType="number-pad"
@@ -1003,7 +1015,7 @@ export default function CarDetailScreen() {
               </View>
 
               {salePrice && parseFloat(salePrice) > 0 && saleQty && parseInt(saleQty) > 0 && car.buyPrice > 0 && (
-                <View style={styles.soldProfitCalc}>
+                <View style={[styles.soldProfitCalc, { backgroundColor: colors.inputBg }]}>
                   {(() => {
                     const sp = parseFloat(salePrice);
                     const sq = parseInt(saleQty);
@@ -1014,7 +1026,7 @@ export default function CarDetailScreen() {
                     const profit = net - (car!.buyPrice * sq);
                     return (
                       <>
-                        <Text style={styles.soldProfitCalcText}>Total: ₹{total.toLocaleString('en-IN')}  ·  Net: ₹{net.toLocaleString('en-IN')}  ·  Profit: </Text>
+                        <Text style={[styles.soldProfitCalcText, appStyles.textSecondary]}>Total: ₹{total.toLocaleString('en-IN')}  ·  Net: ₹{net.toLocaleString('en-IN')}  ·  Profit: </Text>
                         <Text style={[styles.soldProfitCalcValue, {
                           color: profit >= 0 ? '#4caf50' : '#e63946'
                         }]}>
@@ -1029,12 +1041,12 @@ export default function CarDetailScreen() {
               <View style={styles.soldInputGroup}>
                 <View style={styles.soldInputLabelRow}>
                   <MaterialIcons name="store" size={16} color="#42A5F5" />
-                  <Text style={styles.soldInputLabel}>Platform</Text>
+                  <Text style={[styles.soldInputLabel, appStyles.textSecondary]}>Platform</Text>
                 </View>
                 <TextInput
-                  style={styles.soldInput}
+                  style={[styles.soldInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                   placeholder="e.g. eBay, Mercari, FB Marketplace"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   value={salePlatform}
                   onChangeText={setSalePlatform}
                 />
@@ -1043,12 +1055,12 @@ export default function CarDetailScreen() {
               <View style={styles.soldInputGroup}>
                 <View style={styles.soldInputLabelRow}>
                   <MaterialIcons name="person" size={16} color="#FFD700" />
-                  <Text style={styles.soldInputLabel}>Buyer Info</Text>
+                  <Text style={[styles.soldInputLabel, appStyles.textSecondary]}>Buyer Info</Text>
                 </View>
                 <TextInput
-                  style={styles.soldInput}
+                  style={[styles.soldInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                   placeholder="Buyer name or contact"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   value={saleBuyerInfo}
                   onChangeText={setSaleBuyerInfo}
                 />
@@ -1059,12 +1071,12 @@ export default function CarDetailScreen() {
                 <View style={[styles.soldInputGroup, { flex: 1 }]}>
                   <View style={styles.soldInputLabelRow}>
                     <MaterialIcons name="money-off" size={16} color="#e63946" />
-                    <Text style={styles.soldInputLabel}>Platform Fees (₹)</Text>
+                    <Text style={[styles.soldInputLabel, appStyles.textSecondary]}>Platform Fees (₹)</Text>
                   </View>
                   <TextInput
-                    style={styles.soldInput}
+                    style={[styles.soldInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                     placeholder="0"
-                    placeholderTextColor="#555"
+                    placeholderTextColor={colors.textMuted}
                     value={saleFees}
                     onChangeText={setSaleFees}
                     keyboardType="decimal-pad"
@@ -1073,12 +1085,12 @@ export default function CarDetailScreen() {
                 <View style={[styles.soldInputGroup, { flex: 1 }]}>
                   <View style={styles.soldInputLabelRow}>
                     <MaterialIcons name="local-shipping" size={16} color="#42A5F5" />
-                    <Text style={styles.soldInputLabel}>Shipping (₹)</Text>
+                    <Text style={[styles.soldInputLabel, appStyles.textSecondary]}>Shipping (₹)</Text>
                   </View>
                   <TextInput
-                    style={styles.soldInput}
+                    style={[styles.soldInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                     placeholder="0"
-                    placeholderTextColor="#555"
+                    placeholderTextColor={colors.textMuted}
                     value={saleShipping}
                     onChangeText={setSaleShipping}
                     keyboardType="decimal-pad"
@@ -1089,12 +1101,12 @@ export default function CarDetailScreen() {
               <View style={styles.soldInputGroup}>
                 <View style={styles.soldInputLabelRow}>
                   <MaterialIcons name="notes" size={16} color="#FFD700" />
-                  <Text style={styles.soldInputLabel}>Notes</Text>
+                  <Text style={[styles.soldInputLabel, appStyles.textSecondary]}>Notes</Text>
                 </View>
                 <TextInput
                   style={[styles.soldInput, { minHeight: 50 }]}
                   placeholder="Shipping, condition notes, etc."
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   value={saleNotes}
                   onChangeText={setSaleNotes}
                   multiline
@@ -1102,10 +1114,10 @@ export default function CarDetailScreen() {
               </View>
 
               <View style={styles.soldModalActions}>
-                <TouchableOpacity style={styles.soldCancelBtn} onPress={() => setShowSaleModal(false)}>
-                  <Text style={styles.soldCancelBtnText}>Cancel</Text>
+                <TouchableOpacity style={[styles.soldCancelBtn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setShowSaleModal(false)}>
+                  <Text style={[styles.soldCancelBtnText, appStyles.textSecondary]}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.soldConfirmBtn} onPress={handleMarkSold}>
+                <TouchableOpacity style={[styles.soldConfirmBtn, { backgroundColor: colors.success }]} onPress={handleMarkSold}>
                   <MaterialIcons name="check" size={18} color="#fff" />
                   <Text style={styles.soldConfirmBtnText}>Record Sale</Text>
                 </TouchableOpacity>
@@ -1116,8 +1128,8 @@ export default function CarDetailScreen() {
 
         {/* ===== PURCHASE MODAL ===== */}
         {showPurchaseModal && (
-          <View style={styles.soldModalOverlay}>
-            <View style={styles.soldModal}>
+          <View style={[styles.soldModalOverlay, { backgroundColor: colors.overlay }]}>
+            <View style={[styles.soldModal, { backgroundColor: colors.surface }]}>
               <View style={styles.soldModalHeader}>
                 <MaterialIcons name="add-shopping-cart" size={24} color="#4da6ff" />
                 <Text style={[styles.soldModalTitle, { color: '#4da6ff' }]}>Add Purchase</Text>
@@ -1129,12 +1141,12 @@ export default function CarDetailScreen() {
               <View style={styles.soldInputGroup}>
                 <View style={styles.soldInputLabelRow}>
                   <MaterialIcons name="attach-money" size={16} color="#4da6ff" />
-                  <Text style={styles.soldInputLabel}>Buy Price per Unit (₹) *</Text>
+                  <Text style={[styles.soldInputLabel, appStyles.textSecondary]}>Buy Price per Unit (₹) *</Text>
                 </View>
                 <TextInput
-                  style={styles.soldInput}
+                  style={[styles.soldInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                   placeholder="What you paid per unit"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   value={purchasePrice}
                   onChangeText={setPurchasePrice}
                   keyboardType="decimal-pad"
@@ -1145,12 +1157,12 @@ export default function CarDetailScreen() {
               <View style={styles.soldInputGroup}>
                 <View style={styles.soldInputLabelRow}>
                   <MaterialIcons name="numbers" size={16} color="#42A5F5" />
-                  <Text style={styles.soldInputLabel}>Quantity</Text>
+                  <Text style={[styles.soldInputLabel, appStyles.textSecondary]}>Quantity</Text>
                 </View>
                 <TextInput
-                  style={styles.soldInput}
+                  style={[styles.soldInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                   placeholder="Number of units"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   value={purchaseQty}
                   onChangeText={setPurchaseQty}
                   keyboardType="number-pad"
@@ -1160,12 +1172,12 @@ export default function CarDetailScreen() {
               <View style={styles.soldInputGroup}>
                 <View style={styles.soldInputLabelRow}>
                   <MaterialIcons name="store" size={16} color="#FF9800" />
-                  <Text style={styles.soldInputLabel}>Source / Where Bought</Text>
+                  <Text style={[styles.soldInputLabel, appStyles.textSecondary]}>Source / Where Bought</Text>
                 </View>
                 <TextInput
-                  style={styles.soldInput}
+                  style={[styles.soldInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                   placeholder="e.g. Amazon, Local Shop, eBay"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   value={purchaseSource}
                   onChangeText={setPurchaseSource}
                 />
@@ -1174,12 +1186,12 @@ export default function CarDetailScreen() {
               <View style={styles.soldInputGroup}>
                 <View style={styles.soldInputLabelRow}>
                   <MaterialIcons name="check-circle" size={16} color="#4caf50" />
-                  <Text style={styles.soldInputLabel}>Condition</Text>
+                  <Text style={[styles.soldInputLabel, appStyles.textSecondary]}>Condition</Text>
                 </View>
                 <TextInput
-                  style={styles.soldInput}
+                  style={[styles.soldInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                   placeholder="Mint, Carded, Loose, Damaged"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   value={purchaseCondition}
                   onChangeText={setPurchaseCondition}
                 />
@@ -1188,12 +1200,12 @@ export default function CarDetailScreen() {
               <View style={styles.soldInputGroup}>
                 <View style={styles.soldInputLabelRow}>
                   <MaterialIcons name="notes" size={16} color="#FFD700" />
-                  <Text style={styles.soldInputLabel}>Notes</Text>
+                  <Text style={[styles.soldInputLabel, appStyles.textSecondary]}>Notes</Text>
                 </View>
                 <TextInput
                   style={[styles.soldInput, { minHeight: 50 }]}
                   placeholder="Extra details"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   value={purchaseNotes}
                   onChangeText={setPurchaseNotes}
                   multiline
@@ -1201,16 +1213,16 @@ export default function CarDetailScreen() {
               </View>
 
               {purchasePrice && parseFloat(purchasePrice) > 0 && purchaseQty && parseInt(purchaseQty) > 0 && (
-                <View style={styles.soldProfitCalc}>
-                  <Text style={styles.soldProfitCalcText}>Total Cost: ₹{(parseFloat(purchasePrice) * parseInt(purchaseQty)).toLocaleString('en-IN')}</Text>
+                <View style={[styles.soldProfitCalc, { backgroundColor: colors.inputBg }]}>
+                  <Text style={[styles.soldProfitCalcText, appStyles.textSecondary]}>Total Cost: ₹{(parseFloat(purchasePrice) * parseInt(purchaseQty)).toLocaleString('en-IN')}</Text>
                 </View>
               )}
 
               <View style={styles.soldModalActions}>
                 <TouchableOpacity style={styles.soldCancelBtn} onPress={() => setShowPurchaseModal(false)}>
-                  <Text style={styles.soldCancelBtnText}>Cancel</Text>
+                  <Text style={[styles.soldCancelBtnText, appStyles.textSecondary]}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.soldConfirmBtn, { backgroundColor: '#1565C0' }]} onPress={handleAddPurchase}>
+                <TouchableOpacity style={[styles.soldConfirmBtn, { backgroundColor: colors.info }]} onPress={handleAddPurchase}>
                   <MaterialIcons name="check" size={18} color="#fff" />
                   <Text style={styles.soldConfirmBtnText}>Add Purchase</Text>
                 </TouchableOpacity>
@@ -1229,7 +1241,7 @@ export default function CarDetailScreen() {
         {/* Metadata */}
         <View style={styles.metaSection}>
           <MaterialIcons name="schedule" size={12} color="#555" />
-          <Text style={styles.metaText}>
+          <Text style={[styles.metaText, appStyles.textMuted]}>
             Added: {new Date(car.dateAdded).toLocaleDateString('en-IN')}
           </Text>
         </View>
@@ -1256,18 +1268,19 @@ function Field({
   keyboardType?: 'default' | 'decimal-pad' | 'numeric';
   placeholder?: string;
 }) {
+  const { colors } = useTheme();
   return (
     <View style={fieldStyles.container}>
       <View style={fieldStyles.labelRow}>
-        {icon && <MaterialIcons name={icon as any} size={14} color="#888" />}
-        <Text style={fieldStyles.label}>{label}</Text>
+        {icon && <MaterialIcons name={icon as any} size={14} color={colors.textSecondary} />}
+        <Text style={[fieldStyles.label, { color: colors.textSecondary }]}>{label}</Text>
       </View>
       <TextInput
-        style={[fieldStyles.input, multiline && fieldStyles.multiline]}
+        style={[fieldStyles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.text }, multiline && fieldStyles.multiline]}
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor="#555"
+        placeholderTextColor={colors.textMuted}
         multiline={multiline}
         keyboardType={keyboardType || 'default'}
       />
@@ -1286,16 +1299,12 @@ const fieldStyles = StyleSheet.create({
   label: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#888',
     textTransform: 'uppercase',
   },
   input: {
-    backgroundColor: '#0f0f23',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#333',
     padding: 10,
-    color: '#fff',
     fontSize: 14,
   },
   multiline: { minHeight: 60, textAlignVertical: 'top' },
@@ -1315,9 +1324,9 @@ function DetailItem({ label, value, icon }: { label: string; value: string; icon
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f23' },
+  container: { flex: 1 },
   scroll: { paddingBottom: 100 },
-  loadingText: { color: '#888', textAlign: 'center', marginTop: 100 },
+  loadingText: { textAlign: 'center', marginTop: 100 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1332,14 +1341,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#222',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  editButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  editButtonText: { fontSize: 14, fontWeight: '600' },
   deleteButton: {
-    backgroundColor: '#2a1a1a',
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -1383,42 +1390,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#1a1a2e',
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
   },
   photoChangeBtnText: { color: '#4da6ff', fontSize: 14, fontWeight: '600' },
   toggleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#1a1a2e',
     marginHorizontal: 16,
     borderRadius: 12,
     padding: 14,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
   },
   toggleLabelContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  toggleLabel: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  toggleLabel: { fontSize: 14, fontWeight: '600' },
   card: {
-    backgroundColor: '#1a1a2e',
     borderRadius: 14,
     padding: 16,
     marginHorizontal: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
   },
-  carName: { fontSize: 22, fontWeight: '800', color: '#fff' },
-  carSub: { fontSize: 14, color: '#888', marginTop: 2 },
+  carName: { fontSize: 22, fontWeight: '800' },
+  carSub: { fontSize: 14, marginTop: 2 },
   tags: { flexDirection: 'row', gap: 6, marginTop: 10, flexWrap: 'wrap' },
   tag: {
     flexDirection: 'row',
@@ -1449,10 +1450,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  detailLabel: { fontSize: 13, color: '#888' },
-  detailValue: { fontSize: 13, color: '#fff', fontWeight: '600' },
+  detailLabel: { fontSize: 13 },
+  detailValue: { fontSize: 13, fontWeight: '600' },
   priceRangeSection: {
-    backgroundColor: '#0a2a1a',
     borderRadius: 10,
     padding: 12,
     marginTop: 14,
@@ -1472,8 +1472,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
   },
   priceRangeBox: { alignItems: 'center', flex: 1 },
-  priceRangeLabel: { fontSize: 10, color: '#888', textTransform: 'uppercase' },
-  priceRangeValue: { fontSize: 16, fontWeight: '800', color: '#fff', marginTop: 2 },
+  priceRangeLabel: { fontSize: 10, textTransform: 'uppercase' },
+  priceRangeValue: { fontSize: 16, fontWeight: '800', marginTop: 2 },
   priceSection: {
     flexDirection: 'row',
     gap: 8,
@@ -1481,15 +1481,13 @@ const styles = StyleSheet.create({
   },
   priceBox: {
     flex: 1,
-    backgroundColor: '#0f0f23',
     borderRadius: 10,
     padding: 10,
     alignItems: 'center',
   },
-  priceLabel: { fontSize: 10, color: '#666', textTransform: 'uppercase', marginTop: 4 },
+  priceLabel: { fontSize: 10, textTransform: 'uppercase', marginTop: 4 },
   priceValue: { fontSize: 16, fontWeight: '800', color: '#4da6ff', marginTop: 2 },
   priceSourcesCard: {
-    backgroundColor: '#0f0f23',
     borderRadius: 10,
     padding: 12,
     marginTop: 12,
@@ -1510,12 +1508,11 @@ const styles = StyleSheet.create({
     borderBottomColor: '#222',
   },
   priceSourceLeft: { flex: 1, marginRight: 12 },
-  priceSourceStore: { fontSize: 13, color: '#ccc', fontWeight: '600' },
-  priceSourceRef: { fontSize: 10, color: '#666', marginTop: 1 },
+  priceSourceStore: { fontSize: 13, fontWeight: '600' },
+  priceSourceRef: { fontSize: 10, marginTop: 1 },
   priceSourcePrice: { fontSize: 13, color: '#4caf50', fontWeight: '800' },
   historySection: {
     marginTop: 14,
-    backgroundColor: '#1a1a2e',
     borderRadius: 10,
     padding: 12,
     borderWidth: 1,
@@ -1528,7 +1525,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   historyTitle: { fontSize: 14, fontWeight: '800', color: '#FFD700' },
-  historyText: { fontSize: 13, color: '#ccc', lineHeight: 20 },
+  historyText: { fontSize: 13, lineHeight: 20 },
   remarksSection: { marginTop: 12 },
   remarksHeader: {
     flexDirection: 'row',
@@ -1537,7 +1534,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   remarksTitle: { fontSize: 14, fontWeight: '700', color: '#4da6ff' },
-  remarksText: { fontSize: 13, color: '#aaa', lineHeight: 18 },
+  remarksText: { fontSize: 13, lineHeight: 18 },
   saveButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1555,13 +1552,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#1a1a2e',
     borderRadius: 12,
     padding: 14,
     marginHorizontal: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
   },
   searchButtonText: { color: '#4da6ff', fontSize: 14, fontWeight: '600' },
   metaSection: {
@@ -1576,7 +1571,7 @@ const styles = StyleSheet.create({
 
   // Sold Banner
   soldBanner: {
-    backgroundColor: '#0a2a1a', borderRadius: 14, padding: 16,
+    borderRadius: 14, padding: 16,
     marginHorizontal: 16, marginBottom: 12, borderWidth: 1.5, borderColor: '#4caf50',
   },
   soldBannerHeader: {
@@ -1589,9 +1584,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 4,
   },
-  soldDetailLabel: { fontSize: 12, color: '#888' },
-  soldDetailValue: { fontSize: 14, color: '#fff', fontWeight: '700' },
-  soldNotes: { fontSize: 12, color: '#aaa', marginTop: 8, fontStyle: 'italic', lineHeight: 18 },
+  soldDetailLabel: { fontSize: 12 },
+  soldDetailValue: { fontSize: 14, fontWeight: '700' },
+  soldNotes: { fontSize: 12, marginTop: 8, fontStyle: 'italic', lineHeight: 18 },
 
   // Sold Button
   soldButton: {
@@ -1608,7 +1603,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, zIndex: 100,
   },
   soldModal: {
-    backgroundColor: '#1a1a2e', borderRadius: 18, padding: 20, width: '100%',
+    borderRadius: 18, padding: 20, width: '100%',
     borderWidth: 1, borderColor: '#4caf50',
   },
   soldModalHeader: {
@@ -1616,19 +1611,19 @@ const styles = StyleSheet.create({
   },
   soldModalTitle: { fontSize: 18, fontWeight: '800', color: '#4caf50', flex: 1 },
   soldModalProfitPreview: {
-    backgroundColor: '#0f0f23', borderRadius: 10, padding: 10, marginBottom: 16,
+    borderRadius: 10, padding: 10, marginBottom: 16,
   },
   soldModalProfitLabel: { fontSize: 13, color: '#888', fontWeight: '600' },
   soldInputGroup: { marginBottom: 14 },
   soldInputLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  soldInputLabel: { fontSize: 12, fontWeight: '700', color: '#aaa', textTransform: 'uppercase' },
+  soldInputLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
   soldInput: {
-    backgroundColor: '#0f0f23', borderRadius: 10, borderWidth: 1, borderColor: '#333',
-    paddingHorizontal: 14, paddingVertical: 12, color: '#fff', fontSize: 16, fontWeight: '600',
+    borderRadius: 10, borderWidth: 1, borderColor: '#333',
+    paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, fontWeight: '600',
   },
   soldProfitCalc: {
     flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8,
-    backgroundColor: '#0f0f23', borderRadius: 8, padding: 10,
+    borderRadius: 8, padding: 10,
   },
   soldProfitCalcText: { fontSize: 13, color: '#888', fontWeight: '600' },
   soldProfitCalcValue: { fontSize: 16, fontWeight: '900' },
@@ -1651,7 +1646,7 @@ const styles = StyleSheet.create({
 
   // Inventory Stats Card
   inventoryCard: {
-    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
+    borderRadius: 14, padding: 16,
     marginHorizontal: 16, marginBottom: 12, borderWidth: 1.5, borderColor: '#FFD700',
   },
   inventoryHeader: {
@@ -1666,15 +1661,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row', gap: 8, marginBottom: 8,
   },
   inventoryStat: {
-    flex: 1, backgroundColor: '#0f0f23', borderRadius: 10, padding: 10, alignItems: 'center',
+    flex: 1, borderRadius: 10, padding: 10, alignItems: 'center',
   },
-  inventoryStatValue: { fontSize: 16, fontWeight: '800', color: '#fff' },
-  inventoryStatLabel: { fontSize: 9, color: '#666', textTransform: 'uppercase', marginTop: 2 },
+  inventoryStatValue: { fontSize: 16, fontWeight: '800' },
+  inventoryStatLabel: { fontSize: 9, textTransform: 'uppercase', marginTop: 2 },
   inventoryProfitRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: '#0f0f23', borderRadius: 10, padding: 10, marginBottom: 8,
+    borderRadius: 10, padding: 10, marginBottom: 8,
   },
-  inventoryProfitLabel: { fontSize: 12, color: '#888', fontWeight: '600' },
+  inventoryProfitLabel: { fontSize: 12, fontWeight: '600' },
   inventoryProfitValue: { fontSize: 14, fontWeight: '800', flex: 1, textAlign: 'right' },
   inventoryAvg: { fontSize: 11, color: '#666', textAlign: 'center', marginBottom: 10 },
   addPurchaseBtn: {
@@ -1691,7 +1686,7 @@ const styles = StyleSheet.create({
 
   // Purchase / Sale History Cards
   historyCard: {
-    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
+    borderRadius: 14, padding: 16,
     marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderColor: '#2a2a4a',
   },
   historyCardHeader: {

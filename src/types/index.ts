@@ -1,7 +1,10 @@
+export type ApiProvider = 'nvidia' | 'openai';
+
 export interface NvidiaSettings {
   apiKey: string;
   baseUrl: string;
   model: string;
+  provider?: ApiProvider;
 }
 
 export interface PriceSource {

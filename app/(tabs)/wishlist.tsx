@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,15 +12,18 @@ import {
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { getWishlist, deleteCar, updateCar } from '../../src/services/storage';
+import { getWishlist, deleteCar, updateCar, getViewPreferences, saveViewPreference } from '../../src/services/storage';
+import { hapticLight, hapticMedium, hapticSuccess } from '../../src/services/haptics';
 import { HotWheelCar } from '../../src/types';
 import FilterDropdown from '../../src/components/FilterDropdown';
+import { useTheme } from '../../src/context/ThemeContext';
 
 type ViewMode = 'list' | 'grid' | 'compact';
 type SortBy = 'newest' | 'name' | 'price-high' | 'price-low' | 'year';
 
 export default function WishlistScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
   const [cars, setCars] = useState<HotWheelCar[]>([]);
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -33,6 +36,27 @@ export default function WishlistScreen() {
   const [filterColor, setFilterColor] = useState('');
   const [filterSeries, setFilterSeries] = useState('');
   const [filterRarity, setFilterRarity] = useState('');
+
+  // Load saved view preferences on mount
+  useEffect(() => {
+    (async () => {
+      const prefs = await getViewPreferences();
+      setViewMode((prefs.wishlist.viewMode as ViewMode) || 'grid');
+      setSortBy((prefs.wishlist.sortBy as SortBy) || 'newest');
+    })();
+  }, []);
+
+  // Persist viewMode changes
+  const handleViewModeChange = useCallback(async (mode: ViewMode) => {
+    setViewMode(mode);
+    await saveViewPreference('wishlist', 'viewMode', mode);
+  }, []);
+
+  // Persist sortBy changes
+  const handleSortByChange = useCallback(async (sort: SortBy) => {
+    setSortBy(sort);
+    await saveViewPreference('wishlist', 'sortBy', sort);
+  }, []);
 
   const loadCars = async () => {
     const wish = await getWishlist();
@@ -120,26 +144,32 @@ export default function WishlistScreen() {
   const activeFilterCount = [filterYear, filterColor, filterSeries, filterRarity].filter(Boolean).length;
 
   const cycleViewMode = () => {
+    hapticLight();
     const modes: ViewMode[] = ['list', 'grid', 'compact'];
     const idx = modes.indexOf(viewMode);
-    setViewMode(modes[(idx + 1) % modes.length]);
+    const newMode = modes[(idx + 1) % modes.length];
+    handleViewModeChange(newMode);
   };
 
   const viewIcon = viewMode === 'list' ? 'view-list' : viewMode === 'grid' ? 'grid-view' : 'view-module';
 
   const moveToGarage = async (car: HotWheelCar) => {
+    hapticLight();
     await updateCar({ ...car, inCollection: true });
     await loadCars();
+    hapticSuccess();
     Alert.alert('Moved', `${car.name} added to your Garage!`);
   };
 
   const handleDelete = (car: HotWheelCar) => {
+    hapticMedium();
     Alert.alert('Remove from Wishlist', `Remove "${car.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
         style: 'destructive',
         onPress: async () => {
+          hapticSuccess();
           await deleteCar(car.id);
           await loadCars();
         },
@@ -166,7 +196,7 @@ export default function WishlistScreen() {
   // ── List View Card ──
   const renderListItem = ({ item }: { item: HotWheelCar }) => (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}
       onPress={() => router.push({ pathname: '/car/[id]', params: { id: item.id, source: 'wishlist' } })}
       onLongPress={() => {
         Alert.alert(item.name, 'What would you like to do?', [
@@ -180,23 +210,23 @@ export default function WishlistScreen() {
         {item.images && item.images.length > 0 ? (
           <Image source={{ uri: item.images[0] }} style={styles.cardImage} resizeMode="cover" />
         ) : (
-          <View style={styles.cardImagePlaceholder}>
-            <MaterialIcons name="star" size={36} color="#2a2a4a" />
+          <View style={[styles.cardImagePlaceholder, { backgroundColor: colors.cardImageBg }]}>
+            <MaterialIcons name="star" size={36} color={colors.border} />
           </View>
         )}
         {renderRarityBadge(item.rarity)}
       </View>
       <View style={styles.cardInfo}>
-        <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
-        <Text style={styles.cardSubtitle} numberOfLines={1}>{item.model}</Text>
+        <Text style={[styles.cardName, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
+        <Text style={[styles.cardSubtitle, { color: colors.textMuted }]} numberOfLines={1}>{item.model}</Text>
         <View style={styles.cardMetaRow}>
-          <View style={styles.metaPill}>
-            <MaterialIcons name="calendar-today" size={10} color="#888" />
-            <Text style={styles.cardMeta}>{item.year || '—'}</Text>
+          <View style={[styles.metaPill, { backgroundColor: colors.surfaceAlt }]}>
+            <MaterialIcons name="calendar-today" size={10} color={colors.textMuted} />
+            <Text style={[styles.cardMeta, { color: colors.textMuted }]}>{item.year || '—'}</Text>
           </View>
-          <View style={styles.metaPill}>
-            <MaterialIcons name="palette" size={10} color="#888" />
-            <Text style={styles.cardMeta}>{item.color || '—'}</Text>
+          <View style={[styles.metaPill, { backgroundColor: colors.surfaceAlt }]}>
+            <MaterialIcons name="palette" size={10} color={colors.textMuted} />
+            <Text style={[styles.cardMeta, { color: colors.textMuted }]}>{item.color || '—'}</Text>
           </View>
         </View>
         {item.series ? (
@@ -207,7 +237,7 @@ export default function WishlistScreen() {
       </View>
       <View style={styles.cardRight}>
         {(item.priceINR || item.expectedPrice) > 0 ? (
-          <Text style={styles.priceValue}>₹{(item.priceINR || item.expectedPrice).toLocaleString('en-IN')}</Text>
+          <Text style={[styles.priceValue, { color: colors.success }]}>₹{(item.priceINR || item.expectedPrice).toLocaleString('en-IN')}</Text>
         ) : null}
         <TouchableOpacity style={styles.addButton} onPress={() => moveToGarage(item)}>
           <MaterialIcons name="add" size={16} color="#fff" />
@@ -220,7 +250,7 @@ export default function WishlistScreen() {
   // ── Grid View Card ──
   const renderGridItem = ({ item }: { item: HotWheelCar }) => (
     <TouchableOpacity
-      style={styles.gridCard}
+      style={[styles.gridCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}
       onPress={() => router.push({ pathname: '/car/[id]', params: { id: item.id, source: 'wishlist' } })}
       onLongPress={() => {
         Alert.alert(item.name, 'What would you like to do?', [
@@ -234,17 +264,17 @@ export default function WishlistScreen() {
         {item.images && item.images.length > 0 ? (
           <Image source={{ uri: item.images[0] }} style={styles.gridImage} resizeMode="cover" />
         ) : (
-          <View style={styles.gridImagePlaceholder}>
-            <MaterialIcons name="star" size={28} color="#2a2a4a" />
+          <View style={[styles.gridImagePlaceholder, { backgroundColor: colors.cardImageBg }]}>
+            <MaterialIcons name="star" size={28} color={colors.border} />
           </View>
         )}
         {renderRarityBadge(item.rarity)}
       </View>
       <View style={styles.gridInfo}>
-        <Text style={styles.gridName} numberOfLines={1}>{item.name}</Text>
-        <Text style={styles.gridMeta}>{item.year || '—'} · {item.color || '—'}</Text>
+        <Text style={[styles.gridName, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
+        <Text style={[styles.gridMeta, { color: colors.textMuted }]}>{item.year || '—'} · {item.color || '—'}</Text>
         {(item.priceINR || item.expectedPrice || 0) > 0 ? (
-          <Text style={styles.gridPrice}>₹{(item.priceINR || item.expectedPrice || 0).toLocaleString('en-IN')}</Text>
+          <Text style={[styles.gridPrice, { color: colors.success }]}>₹{(item.priceINR || item.expectedPrice || 0).toLocaleString('en-IN')}</Text>
         ) : null}
         <TouchableOpacity style={styles.gridAddBtn} onPress={() => moveToGarage(item)}>
           <MaterialIcons name="add-circle-outline" size={14} color="#4caf50" />
@@ -257,7 +287,7 @@ export default function WishlistScreen() {
   // ── Compact Grid Card ──
   const renderCompactItem = ({ item }: { item: HotWheelCar }) => (
     <TouchableOpacity
-      style={styles.compactCard}
+      style={[styles.compactCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}
       onPress={() => router.push({ pathname: '/car/[id]', params: { id: item.id, source: 'wishlist' } })}
       onLongPress={() => {
         Alert.alert(item.name, 'What would you like to do?', [
@@ -270,12 +300,12 @@ export default function WishlistScreen() {
       {item.images && item.images.length > 0 ? (
         <Image source={{ uri: item.images[0] }} style={styles.compactImage} resizeMode="cover" />
       ) : (
-        <View style={styles.compactImagePlaceholder}>
-          <MaterialIcons name="star" size={20} color="#2a2a4a" />
+        <View style={[styles.compactImagePlaceholder, { backgroundColor: colors.cardImageBg }]}>
+          <MaterialIcons name="star" size={20} color={colors.border} />
         </View>
       )}
-      <Text style={styles.compactName} numberOfLines={1}>{item.name}</Text>
-      <Text style={styles.compactMeta}>{item.year || '—'} · {(item.priceINR || item.expectedPrice || 0) > 0 ? `₹${(item.priceINR || item.expectedPrice || 0).toLocaleString('en-IN')}` : '—'}</Text>
+      <Text style={[styles.compactName, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
+      <Text style={[styles.compactMeta, { color: colors.textMuted }]}>{item.year || '—'} · {(item.priceINR || item.expectedPrice || 0) > 0 ? `₹${(item.priceINR || item.expectedPrice || 0).toLocaleString('en-IN')}` : '—'}</Text>
     </TouchableOpacity>
   );
 
@@ -288,27 +318,27 @@ export default function WishlistScreen() {
   const numCols = viewMode === 'compact' ? 3 : viewMode === 'grid' ? 2 : 1;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <View style={styles.headerIconWrap}>
+          <View style={[styles.headerIconWrap, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <MaterialIcons name="star" size={24} color="#FFD700" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>My Wishlist</Text>
-            <Text style={styles.headerCount}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>My Wishlist</Text>
+            <Text style={[styles.headerCount, { color: colors.textMuted }]}>
               {filtered.length} cars wanted
               {activeFilterCount > 0 ? ` · ${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''}` : ''}
             </Text>
           </View>
-          <TouchableOpacity style={styles.headerBtn} onPress={clearFilters}>
-            <MaterialIcons name="filter-list-off" size={20} color={hasActiveFilters ? '#e63946' : '#555'} />
+          <TouchableOpacity style={[styles.headerBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={clearFilters}>
+            <MaterialIcons name="filter-list-off" size={20} color={hasActiveFilters ? '#e63946' : colors.textMuted} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerBtn} onPress={cycleViewMode}>
-            <MaterialIcons name={viewIcon as any} size={20} color="#888" />
+          <TouchableOpacity style={[styles.headerBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={cycleViewMode}>
+            <MaterialIcons name={viewIcon as any} size={20} color={colors.textMuted} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerBtn} onPress={() => setShowSort(!showSort)}>
+          <TouchableOpacity style={[styles.headerBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setShowSort(!showSort)}>
             <MaterialIcons name="sort" size={20} color={showSort ? '#FFD700' : '#888'} />
           </TouchableOpacity>
         </View>
@@ -326,10 +356,10 @@ export default function WishlistScreen() {
           ].map((s) => (
             <TouchableOpacity
               key={s.key}
-              style={[styles.sortChip, sortBy === s.key && styles.sortChipActive]}
-              onPress={() => setSortBy(s.key as SortBy)}
+              style={[styles.sortChip, { backgroundColor: colors.surface, borderColor: colors.border }, sortBy === s.key && styles.sortChipActive]}
+              onPress={() => handleSortByChange(s.key as SortBy)}
             >
-              <MaterialIcons name={s.icon as any} size={12} color={sortBy === s.key ? '#0f0f23' : '#888'} />
+              <MaterialIcons name={s.icon as any} size={12} color={sortBy === s.key ? '#0f0f23' : colors.textMuted} />
               <Text style={[styles.sortChipText, sortBy === s.key && styles.sortChipTextActive]}>{s.label}</Text>
             </TouchableOpacity>
           ))}
@@ -337,12 +367,12 @@ export default function WishlistScreen() {
       )}
 
       {/* Search */}
-      <View style={styles.searchBar}>
-        <MaterialIcons name="search" size={18} color="#666" />
+      <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <MaterialIcons name="search" size={18} color={colors.textMuted} />
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: colors.text }]}
           placeholder="Search wishlist..."
-          placeholderTextColor="#555"
+          placeholderTextColor={colors.textMuted}
           value={search}
           onChangeText={setSearch}
         />
@@ -404,9 +434,9 @@ export default function WishlistScreen() {
         }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <MaterialIcons name="star-border" size={56} color="#2a2a4a" />
-            <Text style={styles.emptyTitle}>Wishlist is empty</Text>
-            <Text style={styles.emptyDesc}>
+            <MaterialIcons name="star-border" size={56} color={colors.border} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>Wishlist is empty</Text>
+            <Text style={[styles.emptyDesc, { color: colors.textMuted }]}>
               {hasActiveFilters ? 'Try adjusting your filters' : 'Add cars you want to track'}
             </Text>
             {!hasActiveFilters && (

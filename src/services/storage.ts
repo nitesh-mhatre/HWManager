@@ -4,6 +4,8 @@ import { NvidiaSettings, HotWheelCar, PurchaseEntry, SaleEntry } from '../types'
 const KEYS = {
   SETTINGS: 'hw_settings',
   CARS: 'hw_cars',
+  MANUAL_MODE: 'hw_manual_mode',
+  VIEW_PREFS: 'hw_view_prefs',
 } as const;
 
 // ─── Settings ───────────────────────────────────────────────
@@ -204,6 +206,147 @@ export function generateCSV(cars: HotWheelCar[]): string {
 
 export function generateJSON(cars: HotWheelCar[]): string {
   return JSON.stringify(cars, null, 2);
+}
+
+// ─── Manual Mode ──────────────────────────────────────────
+export async function isManualMode(): Promise<boolean> {
+  const raw = await AsyncStorage.getItem(KEYS.MANUAL_MODE);
+  return raw === 'true';
+}
+
+export async function setManualMode(value: boolean): Promise<void> {
+  await AsyncStorage.setItem(KEYS.MANUAL_MODE, String(value));
+}
+
+// ─── View Preferences (Bug 1 fix) ─────────────────────────
+export interface ViewPreferences {
+  garage: { viewMode: string; sortBy: string };
+  wishlist: { viewMode: string; sortBy: string };
+}
+
+const defaultViewPrefs: ViewPreferences = {
+  garage: { viewMode: 'grid', sortBy: 'newest' },
+  wishlist: { viewMode: 'grid', sortBy: 'newest' },
+};
+
+export async function getViewPreferences(): Promise<ViewPreferences> {
+  const raw = await AsyncStorage.getItem(KEYS.VIEW_PREFS);
+  return raw ? { ...defaultViewPrefs, ...JSON.parse(raw) } : defaultViewPrefs;
+}
+
+export async function saveViewPreference(
+  screen: 'garage' | 'wishlist',
+  key: 'viewMode' | 'sortBy',
+  value: string,
+): Promise<void> {
+  const prefs = await getViewPreferences();
+  prefs[screen] = { ...prefs[screen], [key]: value };
+  await AsyncStorage.setItem(KEYS.VIEW_PREFS, JSON.stringify(prefs));
+}
+
+// ─── Backup & Restore (with images as base64) ──────────────
+import { File, Directory, Paths } from 'expo-file-system';
+
+export interface BackupData {
+  version: 1;
+  timestamp: string;
+  settings: NvidiaSettings | null;
+  cars: HotWheelCar[];
+  images: Record<string, string>;
+}
+
+export async function createBackup(): Promise<BackupData> {
+  const settings = await getSettings();
+  const cars = await getAllCars();
+  return {
+    version: 1,
+    timestamp: new Date().toISOString(),
+    settings,
+    cars,
+    images: {},  // images saved as separate files to avoid bridge string limits
+  };
+}
+
+export async function restoreBackup(backup: BackupData): Promise<{ carsImported: number; imagesRestored: number }> {
+  const imageMapping: Record<string, string> = {};
+  let imagesRestored = 0;
+  const docDir = Paths.document.uri || '';
+  const imagesDir = `${docDir}backup_images/`;
+  try {
+    const dirInstance = new Directory(imagesDir);
+    if (!dirInstance.exists) {
+      dirInstance.create();
+    }
+  } catch {
+    new Directory(imagesDir).create();
+  }
+  // Restore images from base64 data in backup (old format)
+  for (const [originalUri, base64] of Object.entries(backup.images || {})) {
+    try {
+      const filename = originalUri.split('/').pop() || `img_${Date.now()}.jpg`;
+      const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const newUri = `${imagesDir}${safeFilename}`;
+      new File(newUri).write(base64, { encoding: 'base64' });
+      imageMapping[originalUri] = newUri;
+      imagesRestored++;
+    } catch (e) {
+      console.warn(`Failed to restore image: ${originalUri}`);
+    }
+  }
+  const restoredCars = backup.cars.map((car) => ({
+    ...car,
+    images: car.images.map((uri) => imageMapping[uri] || uri),
+  }));
+  if (backup.settings) {
+    await saveSettings(backup.settings);
+  }
+  await saveAllCars(restoredCars);
+  return {
+    carsImported: restoredCars.length,
+    imagesRestored,
+  };
+}
+
+export async function createBackupFile(): Promise<string> {
+  const backup = await createBackup();
+  const json = JSON.stringify(backup);
+  const fileUri = `${Paths.cache}hotwheels-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  await new File(fileUri).write(json);
+
+  // Copy images as separate files to avoid string bridge limits
+  const allImageUris = new Set<string>();
+  for (const car of backup.cars) {
+    if (car.images && car.images.length > 0) {
+      for (const uri of car.images) {
+        if (uri && !uri.startsWith('data:')) {
+          allImageUris.add(uri);
+        }
+      }
+    }
+  }
+  if (allImageUris.size > 0) {
+    const backupDir = `${Paths.cache}hotwheels-images/`;
+    try {
+      const dir = new Directory(backupDir);
+      if (!dir.exists) dir.create();
+    } catch {
+      new Directory(backupDir).create();
+    }
+    for (const uri of allImageUris) {
+      try {
+        const filename = uri.split('/').pop() || `img_${Date.now()}.jpg`;
+        const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const srcFile = new File(uri);
+        if (srcFile.exists) {
+          const base64Data = srcFile.base64Sync();
+          new File(`${backupDir}${safeFilename}`).write(base64Data, { encoding: 'base64' });
+        }
+      } catch (e) {
+        console.warn(`Failed to copy image for backup: ${uri}`);
+      }
+    }
+  }
+  return fileUri;
 }
 
 // ─── Peg-Hunting Helpers ────────────────────────────────────

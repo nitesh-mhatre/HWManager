@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { fetchModels } from '../src/services/nvidia';
-import { saveSettings } from '../src/services/storage';
+import { saveSettings, setManualMode } from '../src/services/storage';
 
 const PRESET_BASE_URL = 'https://integrate.api.nvidia.com/v1';
 
@@ -57,6 +57,19 @@ export default function SetupScreen() {
         baseUrl: baseUrl.trim() || PRESET_BASE_URL,
         model: selectedModel,
       });
+      await setManualMode(false);
+      router.replace('/(tabs)/garage');
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleManualMode = async () => {
+    setSaving(true);
+    try {
+      await setManualMode(true);
       router.replace('/(tabs)/garage');
     } catch (e: any) {
       Alert.alert('Error', e.message);
@@ -193,6 +206,23 @@ export default function SetupScreen() {
           </View>
         )}
 
+        {/* Manual Mode Button */}
+        <TouchableOpacity
+          style={styles.manualModeCard}
+          onPress={handleManualMode}
+          disabled={saving}
+        >
+          <View style={styles.manualModeIcon}>
+            <Text style={styles.manualModeEmoji}>✏️</Text>
+          </View>
+          <View style={styles.manualModeInfo}>
+            <Text style={styles.manualModeTitle}>Manual Entry Mode</Text>
+            <Text style={styles.manualModeDesc}>
+              Skip API setup — add cars by typing details manually. You can always set up AI later in Settings.
+            </Text>
+          </View>
+        </TouchableOpacity>
+
         {/* Info box */}
         <View style={styles.infoBox}>
           <Text style={styles.infoTitle}>ℹ️ About NVIDIA Free APIs</Text>
@@ -323,6 +353,38 @@ const styles = StyleSheet.create({
   modelRadioActive: { backgroundColor: '#e63946' },
   modelName: { fontSize: 13, color: '#aaa', flex: 1 },
   modelNameActive: { color: '#fff', fontWeight: '600' },
+  manualModeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: '#4da6ff',
+  },
+  manualModeIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: 'rgba(77, 166, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  manualModeEmoji: { fontSize: 24 },
+  manualModeInfo: { flex: 1 },
+  manualModeTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#4da6ff',
+    marginBottom: 2,
+  },
+  manualModeDesc: {
+    fontSize: 12,
+    color: '#888',
+    lineHeight: 17,
+  },
   infoBox: {
     backgroundColor: '#1a1a2e',
     borderRadius: 12,

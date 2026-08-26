@@ -1,21 +1,14 @@
-import { NvidiaSettings, ScanResult, PriceRange } from '../types';
+import { NvidiaSettings, ScanResult, PriceRange, ApiProvider } from '../types';
 import * as FileSystem from 'expo-file-system';
 
 const DEFAULT_BASE = 'https://integrate.api.nvidia.com/v1';
+const OPENAI_BASE = 'https://api.openai.com/v1';
 
-// ─── Fetch available models for a given API key ──────────────
-export async function fetchModels(apiKey: string, baseUrl?: string): Promise<string[]> {
-  const base = baseUrl || DEFAULT_BASE;
-  try {
-    const res = await fetch(`${base}/models`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const models: string[] = data.data?.map((m: any) => m.id) ?? [];
-    return models.sort();
-  } catch {
-    return [
+// ─── Provider defaults ─────────────────────────────────────
+export const PROVIDER_DEFAULTS: Record<ApiProvider, { baseUrl: string; models: string[] }> = {
+  nvidia: {
+    baseUrl: DEFAULT_BASE,
+    models: [
       'meta/llama-3.1-8b-instruct',
       'meta/llama-3.2-11b-vision-instruct',
       'nvidia/llama-3.1-nemotron-ultra-253b-v1',
@@ -25,7 +18,34 @@ export async function fetchModels(apiKey: string, baseUrl?: string): Promise<str
       'nvidia/llama-3.1-nemotron-70b-instruct',
       'mistralai/mistral-7b-instruct-v0.3',
       'google/gemma-2-9b-it',
-    ];
+    ],
+  },
+  openai: {
+    baseUrl: OPENAI_BASE,
+    models: [
+      'gpt-4o',
+      'gpt-4o-mini',
+      'gpt-4-turbo',
+      'gpt-4',
+      'gpt-3.5-turbo',
+      'gpt-4-vision-preview',
+    ],
+  },
+};
+
+// ─── Fetch available models for a given API key ──────────────
+export async function fetchModels(apiKey: string, baseUrl?: string, provider?: ApiProvider): Promise<string[]> {
+  const base = baseUrl || (provider === 'openai' ? OPENAI_BASE : DEFAULT_BASE);
+  try {
+    const res = await fetch(`${base}/models`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const models: string[] = data.data?.map((m: any) => m.id) ?? [];
+    return models.sort();
+  } catch {
+    return PROVIDER_DEFAULTS[provider || 'nvidia'].models;
   }
 }
 
@@ -63,7 +83,9 @@ async function chatCompletion(
   messages: any[],
   options?: { temperature?: number; max_tokens?: number }
 ): Promise<string> {
-  const base = settings.baseUrl || DEFAULT_BASE;
+  const provider = settings.provider || 'nvidia';
+  const base = settings.baseUrl || (provider === 'openai' ? OPENAI_BASE : DEFAULT_BASE);
+  const providerLabel = provider === 'openai' ? 'OpenAI' : 'NVIDIA';
   const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -81,7 +103,7 @@ async function chatCompletion(
 
   if (!res.ok) {
     const errBody = await res.text();
-    throw new Error(`NVIDIA API error ${res.status}: ${errBody}`);
+    throw new Error(`${providerLabel} API error ${res.status}: ${errBody}`);
   }
 
   const data = await res.json();

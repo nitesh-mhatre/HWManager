@@ -17,6 +17,8 @@ import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { getSettings, findDuplicateCars, addCar, analyzeDuplicateDetails, DuplicateAnalysis } from '../../src/services/storage';
 import { scanCarFromImage, scanBulkFromImage, searchCarValue } from '../../src/services/nvidia';
 import { ScanResult, HotWheelCar, PurchaseEntry } from '../../src/types';
+import { useTheme } from '../../src/context/ThemeContext';
+import { getAppStyles } from '../../src/styles/themeStyles';
 import AdBanner from '../../src/components/AdBanner';
 
 type ScanPhase = 'pick' | 'analyzing' | 'result' | 'searching';
@@ -26,6 +28,8 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function ScanScreen() {
   const router = useRouter();
+  const { colors, isDark } = useTheme();
+  const appStyles = getAppStyles(colors);
   const [phase, setPhase] = useState<ScanPhase>('pick');
   const [scanMode, setScanMode] = useState<ScanMode>('single');
   const [imageUri, setImageUri] = useState<string | null>(null);
@@ -312,14 +316,13 @@ export default function ScanScreen() {
   const currentResult = getCurrentResult();
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scroll}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <MaterialCommunityIcons name="barcode-scan" size={32} color="#e63946" />
-          <View style={styles.headerText}>
-            <Text style={styles.headerTitle}>Scan Car</Text>
-            <Text style={styles.headerSub}>AI reads the card · You enter year & price</Text>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.scroll}>
+      {/* Header */}        <View style={styles.header}>
+          <View style={styles.headerRow}>
+            <MaterialCommunityIcons name="barcode-scan" size={32} color={colors.primary} />
+            <View style={styles.headerText}>
+              <Text style={[styles.headerTitle, appStyles.textPrimary]}>Scan Car</Text>
+              <Text style={[styles.headerSub, appStyles.textSecondary]}>AI reads the card · You enter year & price</Text>
           </View>
         </View>
       </View>
@@ -330,7 +333,7 @@ export default function ScanScreen() {
           {imageUri && <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="contain" />}
 
           {/* Scan mode toggle */}
-          <View style={styles.modeToggle}>
+          <View style={[styles.modeToggle, appStyles.card]}>
             <TouchableOpacity
               style={[styles.modeBtn, scanMode === 'single' && styles.modeBtnActive]}
               onPress={() => setScanMode('single')}
@@ -348,42 +351,42 @@ export default function ScanScreen() {
           </View>
 
           {scanMode === 'bulk' && (
-            <View style={styles.bulkHint}>
+            <View style={[styles.bulkHint, { backgroundColor: colors.infoBg, borderColor: colors.infoBg.replace('0.1', '0.3') }]}>  
               <MaterialIcons name="info-outline" size={16} color="#4da6ff" />
-              <Text style={styles.bulkHintText}>
+              <Text style={[styles.bulkHintText, { color: colors.info }]}>
                 Point camera at multiple cars — AI will identify each one
               </Text>
             </View>
           )}
 
           <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.actionCard} onPress={() => pickImage(true)}>
-              <View style={[styles.iconCircle, { backgroundColor: 'rgba(230, 57, 70, 0.15)' }]}>
-                <MaterialIcons name="camera-alt" size={28} color="#e63946" />
+            <TouchableOpacity style={[styles.actionCard, appStyles.card]} onPress={() => pickImage(true)}>
+              <View style={[styles.iconCircle, { backgroundColor: colors.primaryBg }]}>
+                <MaterialIcons name="camera-alt" size={28} color={colors.primary} />
               </View>
-              <Text style={styles.actionLabel}>Take Photo</Text>
-              <Text style={styles.actionDesc}>Use your camera</Text>
+              <Text style={[styles.actionLabel, appStyles.textPrimary]}>Take Photo</Text>
+              <Text style={[styles.actionDesc, appStyles.textMuted]}>Use your camera</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionCard} onPress={() => pickImage(false)}>
-              <View style={[styles.iconCircle, { backgroundColor: 'rgba(77, 166, 255, 0.15)' }]}>
-                <MaterialIcons name="photo-library" size={28} color="#4da6ff" />
+            <TouchableOpacity style={[styles.actionCard, appStyles.card]} onPress={() => pickImage(false)}>
+              <View style={[styles.iconCircle, { backgroundColor: colors.infoBg }]}>
+                <MaterialIcons name="photo-library" size={28} color={colors.info} />
               </View>
-              <Text style={styles.actionLabel}>Pick Image</Text>
-              <Text style={styles.actionDesc}>From your gallery</Text>
+              <Text style={[styles.actionLabel, appStyles.textPrimary]}>Pick Image</Text>
+              <Text style={[styles.actionDesc, appStyles.textMuted]}>From your gallery</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.searchSection}>
             <View style={styles.sectionHeader}>
-              <MaterialIcons name="search" size={18} color="#aaa" />
-              <Text style={styles.sectionTitle}>Or search by name</Text>
+              <MaterialIcons name="search" size={18} color={colors.textSecondary} />
+              <Text style={[styles.sectionTitle, appStyles.textSecondary]}>Or search by name</Text>
             </View>
             <View style={styles.searchRow}>
-              <View style={styles.searchInputWrapper}>
+              <View style={[styles.searchInputWrapper, { backgroundColor: colors.surface, borderColor: colors.inputBorder }]}>
                 <TextInput
-                  style={styles.searchInput}
+                  style={[styles.searchInput, { color: colors.text }]}
                   placeholder="e.g., '1967 Custom Camaro'"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                 />
@@ -402,8 +405,8 @@ export default function ScanScreen() {
 
       {/* ═══ ANALYZING PHASE ═══ */}
       {phase === 'analyzing' && (
-        <View style={styles.statusCard}>
-          {imageUri && <Image source={{ uri: imageUri }} style={styles.miniPreview} resizeMode="cover" />}
+        <View style={[styles.statusCard, appStyles.card]}>
+          {imageUri && <Image source={{ uri: imageUri }} style={[styles.miniPreview, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]} resizeMode="cover" />}
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#e63946" />
             <MaterialCommunityIcons name="car" size={40} color="#e63946" style={styles.loadingCarIcon} />
@@ -422,7 +425,7 @@ export default function ScanScreen() {
       )}
 
       {phase === 'searching' && (
-        <View style={styles.statusCard}>
+        <View style={[styles.statusCard, appStyles.card]}>
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#4da6ff" />
             <MaterialIcons name="trending-up" size={40} color="#4da6ff" style={styles.loadingCarIcon} />
@@ -439,7 +442,7 @@ export default function ScanScreen() {
       {phase === 'result' && (
         <>
           {error ? (
-            <View style={styles.errorCard}>
+            <View style={[styles.errorCard, { backgroundColor: colors.dangerBg, borderColor: colors.danger }]}>  
               <MaterialIcons name="error-outline" size={40} color="#ff6b6b" />
               <Text style={styles.errorText}>{error}</Text>
               <TouchableOpacity style={styles.retryButton} onPress={reset}>
@@ -488,7 +491,7 @@ export default function ScanScreen() {
               )}
 
               {/* ===== AI IDENTIFIED DETAILS ===== */}
-              <View style={styles.aiSection}>
+              <View style={[styles.aiSection, appStyles.card, { borderColor: colors.info }]}>  
                 <View style={styles.aiHeader}>
                   <MaterialCommunityIcons name="robot" size={18} color="#4da6ff" />
                   <Text style={styles.aiTitle}>AI Identified</Text>
@@ -501,9 +504,9 @@ export default function ScanScreen() {
                   </View>
                 </View>
 
-                <Text style={styles.carNameDisplay}>{currentResult.name || 'Unknown Car'}</Text>
+                <Text style={[styles.carNameDisplay, appStyles.textPrimary]}>{currentResult.name || 'Unknown Car'}</Text>
                 {currentResult.model ? (
-                  <Text style={styles.carYearDisplay}>{currentResult.model}</Text>
+                  <Text style={[styles.carYearDisplay, appStyles.textSecondary]}>{currentResult.model}</Text>
                 ) : null}
 
                 {/* Tags */}
@@ -535,81 +538,81 @@ export default function ScanScreen() {
                 </View>
 
                 {currentResult.conditionNotes ? (
-                  <Text style={styles.conditionNotes}>{currentResult.conditionNotes}</Text>
+                  <Text style={[styles.conditionNotes, appStyles.textSecondary]}>{currentResult.conditionNotes}</Text>
                 ) : null}
 
                 {/* All AI details */}
                 <View style={styles.aiDetails}>
                   {currentResult.color ? (
-                    <View style={styles.aiRow}>
-                      <MaterialIcons name="palette" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Color</Text>
-                      <Text style={styles.aiValue}>{currentResult.color}</Text>
+                    <View style={[styles.aiRow, { borderBottomColor: colors.borderLight }]}>  
+                      <MaterialIcons name="palette" size={14} color={colors.textSecondary} />
+                      <Text style={[styles.aiLabel, appStyles.textSecondary]}>Color</Text>
+                      <Text style={[styles.aiValue, appStyles.textPrimary]}>{currentResult.color}</Text>
                     </View>
                   ) : null}
                   {currentResult.scale ? (
-                    <View style={styles.aiRow}>
-                      <MaterialIcons name="straighten" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Scale</Text>
-                      <Text style={styles.aiValue}>{currentResult.scale}</Text>
+                    <View style={[styles.aiRow, { borderBottomColor: colors.borderLight }]}>  
+                      <MaterialIcons name="straighten" size={14} color={colors.textSecondary} />
+                      <Text style={[styles.aiLabel, appStyles.textSecondary]}>Scale</Text>
+                      <Text style={[styles.aiValue, appStyles.textPrimary]}>{currentResult.scale}</Text>
                     </View>
                   ) : null}
                   {currentResult.manufacturer ? (
-                    <View style={styles.aiRow}>
-                      <MaterialIcons name="business" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Maker</Text>
-                      <Text style={styles.aiValue}>{currentResult.manufacturer}</Text>
+                    <View style={[styles.aiRow, { borderBottomColor: colors.borderLight }]}>  
+                      <MaterialIcons name="business" size={14} color={colors.textSecondary} />
+                      <Text style={[styles.aiLabel, appStyles.textSecondary]}>Maker</Text>
+                      <Text style={[styles.aiValue, appStyles.textPrimary]}>{currentResult.manufacturer}</Text>
                     </View>
                   ) : null}
                   {currentResult.wheelType ? (
-                    <View style={styles.aiRow}>
-                      <MaterialIcons name="loop" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Wheels</Text>
-                      <Text style={styles.aiValue}>{currentResult.wheelType}</Text>
+                    <View style={[styles.aiRow, { borderBottomColor: colors.borderLight }]}>  
+                      <MaterialIcons name="loop" size={14} color={colors.textSecondary} />
+                      <Text style={[styles.aiLabel, appStyles.textSecondary]}>Wheels</Text>
+                      <Text style={[styles.aiValue, appStyles.textPrimary]}>{currentResult.wheelType}</Text>
                     </View>
                   ) : null}
                   {currentResult.baseColor ? (
-                    <View style={styles.aiRow}>
-                      <MaterialIcons name="square" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Base</Text>
-                      <Text style={styles.aiValue}>{currentResult.baseColor}</Text>
+                    <View style={[styles.aiRow, { borderBottomColor: colors.borderLight }]}>  
+                      <MaterialIcons name="square" size={14} color={colors.textSecondary} />
+                      <Text style={[styles.aiLabel, appStyles.textSecondary]}>Base</Text>
+                      <Text style={[styles.aiValue, appStyles.textPrimary]}>{currentResult.baseColor}</Text>
                     </View>
                   ) : null}
                   {currentResult.tampos ? (
-                    <View style={styles.aiRow}>
-                      <MaterialIcons name="brush" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Tampos</Text>
-                      <Text style={styles.aiValue}>{currentResult.tampos}</Text>
+                    <View style={[styles.aiRow, { borderBottomColor: colors.borderLight }]}>  
+                      <MaterialIcons name="brush" size={14} color={colors.textSecondary} />
+                      <Text style={[styles.aiLabel, appStyles.textSecondary]}>Tampos</Text>
+                      <Text style={[styles.aiValue, appStyles.textPrimary]}>{currentResult.tampos}</Text>
                     </View>
                   ) : null}
                   {currentResult.barcode ? (
-                    <View style={styles.aiRow}>
-                      <MaterialCommunityIcons name="barcode" size={14} color="#888" />
-                      <Text style={styles.aiLabel}>Barcode</Text>
-                      <Text style={styles.aiValue}>{currentResult.barcode}</Text>
+                    <View style={[styles.aiRow, { borderBottomColor: colors.borderLight }]}>  
+                      <MaterialCommunityIcons name="barcode" size={14} color={colors.textSecondary} />
+                      <Text style={[styles.aiLabel, appStyles.textSecondary]}>Barcode</Text>
+                      <Text style={[styles.aiValue, appStyles.textPrimary]}>{currentResult.barcode}</Text>
                     </View>
                   ) : null}
                 </View>
               </View>
 
               {/* ===== USER INPUT FIELDS: Year, Buy Price, Expected Price ===== */}
-              <View style={styles.userInputCard}>
+              <View style={[styles.userInputCard, appStyles.card, { borderColor: '#FFD700' }]}>
                 <View style={styles.userInputHeader}>
                   <MaterialIcons name="edit" size={18} color="#FFD700" />
                   <Text style={styles.userInputTitle}>Your Details</Text>
-                  <Text style={styles.userInputHint}>Year · Buy Price · Expected Sell</Text>
+                  <Text style={[styles.userInputHint, appStyles.textSecondary]}>Year · Buy Price · Expected Sell</Text>
                 </View>
 
                 {/* Year */}
                 <View style={styles.userInputGroup}>
                   <View style={styles.userInputLabelRow}>
                     <MaterialIcons name="calendar-today" size={14} color="#FFD700" />
-                    <Text style={styles.userInputLabel}>Year</Text>
+                    <Text style={[styles.userInputLabel, appStyles.textSecondary]}>Year</Text>
                   </View>
                   <TextInput
-                    style={styles.userInput}
+                    style={[styles.userInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                     placeholder='e.g. "2024"'
-                    placeholderTextColor="#555"
+                    placeholderTextColor={colors.textMuted}
                     value={userYear}
                     onChangeText={setUserYear}
                     keyboardType="number-pad"
@@ -620,12 +623,12 @@ export default function ScanScreen() {
                 <View style={styles.userInputGroup}>
                   <View style={styles.userInputLabelRow}>
                     <MaterialIcons name="attach-money" size={14} color="#4da6ff" />
-                    <Text style={styles.userInputLabel}>Buy Price (₹)</Text>
+                    <Text style={[styles.userInputLabel, appStyles.textSecondary]}>Buy Price (₹)</Text>
                   </View>
                   <TextInput
-                    style={styles.userInput}
+                    style={[styles.userInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                     placeholder='What you paid, e.g. "179"'
-                    placeholderTextColor="#555"
+                    placeholderTextColor={colors.textMuted}
                     value={userBuyPrice}
                     onChangeText={setUserBuyPrice}
                     keyboardType="decimal-pad"
@@ -636,12 +639,12 @@ export default function ScanScreen() {
                 <View style={styles.userInputGroup}>
                   <View style={styles.userInputLabelRow}>
                     <MaterialIcons name="trending-up" size={14} color="#4caf50" />
-                    <Text style={styles.userInputLabel}>Expected Sell Price (₹)</Text>
+                    <Text style={[styles.userInputLabel, appStyles.textSecondary]}>Expected Sell Price (₹)</Text>
                   </View>
                   <TextInput
-                    style={styles.userInput}
+                    style={[styles.userInput, { backgroundColor: colors.inputBg, color: colors.text }]}
                     placeholder='Expected market value, e.g. "350"'
-                    placeholderTextColor="#555"
+                    placeholderTextColor={colors.textMuted}
                     value={userExpectedPrice}
                     onChangeText={setUserExpectedPrice}
                     keyboardType="decimal-pad"
@@ -650,7 +653,7 @@ export default function ScanScreen() {
 
                 {/* ROI Preview */}
                 {userBuyPrice && userExpectedPrice && parseFloat(userBuyPrice) > 0 ? (
-                  <View style={styles.roiPreview}>
+                  <View style={[styles.roiPreview, { backgroundColor: colors.inputBg }]}>
                     <MaterialIcons name="show-chart" size={16} color={
                       parseFloat(userExpectedPrice) >= parseFloat(userBuyPrice) ? '#4caf50' : '#e63946'
                     } />
@@ -670,22 +673,22 @@ export default function ScanScreen() {
 
               {/* ===== CAR HISTORY ===== */}
               {currentResult.history ? (
-                <View style={styles.historyCard}>
+                <View style={[styles.historyCard, { backgroundColor: colors.surface }]}>
                   <View style={styles.historyHeader}>
                     <MaterialIcons name="history-edu" size={18} color="#FFD700" />
                     <Text style={styles.historyTitle}>Car History</Text>
                   </View>
-                  <Text style={styles.historyText}>{currentResult.history}</Text>
+                  <Text style={[styles.historyText, appStyles.textSecondary]}>{currentResult.history}</Text>
                 </View>
               ) : null}
 
               {searchResult ? (
-                <View style={styles.infoCard}>
+                <View style={[styles.infoCard, { backgroundColor: colors.infoBg, borderColor: 'rgba(77, 166, 255, 0.3)' }]}>
                   <View style={styles.infoHeader}>
-                    <MaterialIcons name="search" size={18} color="#4da6ff" />
-                    <Text style={styles.infoTitle}>Search Results</Text>
+                    <MaterialIcons name="search" size={18} color={colors.info} />
+                    <Text style={[styles.infoTitle, { color: colors.info }]}>Search Results</Text>
                   </View>
-                  <Text style={styles.infoText}>{searchResult}</Text>
+                  <Text style={[styles.infoText, { color: colors.info }]}>{searchResult}</Text>
                 </View>
               ) : null}
 
@@ -693,26 +696,26 @@ export default function ScanScreen() {
               <View style={styles.resultActions}>
                 <TouchableOpacity style={styles.garageButton} onPress={addToGarage}>
                   <MaterialCommunityIcons name="car" size={20} color="#fff" />
-                  <Text style={styles.garageButtonText}>
+                  <Text style={[styles.garageButtonText, { color: '#fff' }]}>
                     {scanMode === 'bulk' && currentCarIndex < bulkResults.length - 1
                       ? `Save & Next (${bulkResults.length - currentCarIndex - 1} left)`
                       : 'Add to Garage'}
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.wishlistButton} onPress={addToWishlist}>
-                  <MaterialIcons name="star" size={20} color="#fff" />
-                  <Text style={styles.wishlistButtonText}>Add to Wishlist</Text>
+                <TouchableOpacity style={[styles.wishlistButton, { backgroundColor: colors.surfaceAlt }]} onPress={addToWishlist}>
+                  <MaterialIcons name="star" size={20} color={colors.gold} />
+                  <Text style={[styles.wishlistButtonText, appStyles.textPrimary]}>Add to Wishlist</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.resetButton} onPress={reset}>
-                  <MaterialIcons name="camera-alt" size={18} color="#aaa" />
-                  <Text style={styles.resetButtonText}>Scan Another</Text>
+                <TouchableOpacity style={[styles.resetButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={reset}>
+                  <MaterialIcons name="camera-alt" size={18} color={colors.textSecondary} />
+                  <Text style={[styles.resetButtonText, appStyles.textSecondary]}>Scan Another</Text>
                 </TouchableOpacity>
               </View>
 
               {/* ===== DUPLICATE ALERT MODAL ===== */}
               {showDuplicateAlert && duplicateCars.length > 0 && duplicateAnalysis && (
-                <View style={styles.dupeOverlay}>
-                  <View style={styles.dupeModal}>
+                <View style={[styles.dupeOverlay, { backgroundColor: colors.overlay }]}>
+                  <View style={[styles.dupeModal, appStyles.card]}>
                     <View style={styles.dupeHeader}>
                       <MaterialIcons name="content-copy" size={28} color="#FF9800" />
                       <Text style={styles.dupeTitle}>Duplicate Found!</Text>
@@ -725,17 +728,17 @@ export default function ScanScreen() {
                           <Text style={styles.dupeSectionTitle}>Same color ({duplicateAnalysis.sameColorCount}x)</Text>
                         </View>
                         {duplicateAnalysis.exactDupes.map((dc) => (
-                          <View key={dc.id} style={styles.dupeCard}>
-                            {dc.images && dc.images.length > 0 ? (
-                              <Image source={{ uri: dc.images[0] }} style={styles.dupeThumb} resizeMode="cover" />
-                            ) : (
-                              <View style={[styles.dupeThumb, styles.dupeThumbPlaceholder]}>
-                                <MaterialCommunityIcons name="car" size={20} color="#2a2a4a" />
-                              </View>
-                            )}
-                            <View style={styles.dupeCardLeft}>
-                              <Text style={styles.dupeName}>{dc.name}</Text>
-                              <Text style={styles.dupeInfo}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
+                <View key={dc.id} style={[styles.dupeCard, { backgroundColor: colors.inputBg, borderColor: colors.borderLight }]}>
+                  {dc.images && dc.images.length > 0 ? (
+                    <Image source={{ uri: dc.images[0] }} style={[styles.dupeThumb, { backgroundColor: colors.cardImageBg }]} resizeMode="cover" />
+                  ) : (
+                    <View style={[styles.dupeThumb, styles.dupeThumbPlaceholder, { backgroundColor: colors.cardImageBg, borderColor: colors.border }]}>  
+                      <MaterialCommunityIcons name="car" size={20} color={colors.textMuted} />
+                    </View>
+                  )}
+                  <View style={styles.dupeCardLeft}>
+                    <Text style={[styles.dupeName, appStyles.textPrimary]}>{dc.name}</Text>
+                    <Text style={[styles.dupeInfo, appStyles.textSecondary]}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
                               <Text style={styles.dupePrice}>Paid: ₹{(dc.buyPrice || 0).toLocaleString('en-IN')}</Text>
                             </View>
                             <TouchableOpacity
@@ -760,17 +763,17 @@ export default function ScanScreen() {
                           <Text style={[styles.dupeSectionTitle, { color: '#42A5F5' }]}>Different color ({duplicateAnalysis.differentColorCount}x)</Text>
                         </View>
                         {duplicateAnalysis.colorVariants.map((dc) => (
-                          <View key={dc.id} style={styles.dupeCard}>
-                            {dc.images && dc.images.length > 0 ? (
-                              <Image source={{ uri: dc.images[0] }} style={styles.dupeThumb} resizeMode="cover" />
-                            ) : (
-                              <View style={[styles.dupeThumb, styles.dupeThumbPlaceholder]}>
-                                <MaterialCommunityIcons name="car" size={20} color="#2a2a4a" />
-                              </View>
-                            )}
-                            <View style={styles.dupeCardLeft}>
-                              <Text style={styles.dupeName}>{dc.name}</Text>
-                              <Text style={styles.dupeInfo}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
+                <View key={dc.id} style={[styles.dupeCard, { backgroundColor: colors.inputBg, borderColor: colors.borderLight }]}>
+                  {dc.images && dc.images.length > 0 ? (
+                    <Image source={{ uri: dc.images[0] }} style={[styles.dupeThumb, { backgroundColor: colors.cardImageBg }]} resizeMode="cover" />
+                  ) : (
+                    <View style={[styles.dupeThumb, styles.dupeThumbPlaceholder, { backgroundColor: colors.cardImageBg, borderColor: colors.border }]}>  
+                      <MaterialCommunityIcons name="car" size={20} color={colors.textMuted} />
+                    </View>
+                  )}
+                  <View style={styles.dupeCardLeft}>
+                    <Text style={[styles.dupeName, appStyles.textPrimary]}>{dc.name}</Text>
+                    <Text style={[styles.dupeInfo, appStyles.textSecondary]}>{dc.year} · {dc.color} · Qty: {dc.quantity || 1}</Text>
                               <Text style={styles.dupePrice}>Paid: ₹{(dc.buyPrice || 0).toLocaleString('en-IN')}</Text>
                             </View>
                             <TouchableOpacity
@@ -822,25 +825,25 @@ export default function ScanScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f23' },
+  container: { flex: 1 },
   scroll: { padding: 16, paddingTop: 50, paddingBottom: 100 },
   header: { marginBottom: 16 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   headerText: { flex: 1 },
-  headerTitle: { fontSize: 26, fontWeight: '800', color: '#fff' },
-  headerSub: { fontSize: 13, color: '#888', marginTop: 2 },
+  headerTitle: { fontSize: 26, fontWeight: '800' },
+  headerSub: { fontSize: 13, marginTop: 2 },
   preview: {
     width: '100%', height: 200, borderRadius: 14,
-    backgroundColor: '#1a1a2e', marginBottom: 12, borderWidth: 1, borderColor: '#2a2a4a',
+    marginBottom: 12, borderWidth: 1,
   },
   miniPreview: {
     width: '100%', height: 140, borderRadius: 14,
-    backgroundColor: '#1a1a2e', marginBottom: 12, borderWidth: 1, borderColor: '#2a2a4a',
+    marginBottom: 12, borderWidth: 1,
   },
   // Mode toggle
   modeToggle: {
-    flexDirection: 'row', backgroundColor: '#1a1a2e', borderRadius: 12,
-    padding: 4, marginBottom: 8, borderWidth: 1, borderColor: '#2a2a4a',
+    flexDirection: 'row', borderRadius: 12,
+    padding: 4, marginBottom: 8, borderWidth: 1,
   },
   modeBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -851,51 +854,51 @@ const styles = StyleSheet.create({
   modeBtnTextActive: { color: '#fff' },
   bulkHint: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: 'rgba(77, 166, 255, 0.1)', borderRadius: 8,
-    padding: 8, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(77, 166, 255, 0.3)',
+    borderRadius: 8,
+    padding: 8, marginBottom: 12, borderWidth: 1,
   },
-  bulkHintText: { fontSize: 12, color: '#4da6ff', flex: 1 },
+  bulkHintText: { fontSize: 12, flex: 1 },
   actionRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
   actionCard: {
-    flex: 1, backgroundColor: '#1a1a2e', borderRadius: 14, padding: 20,
-    alignItems: 'center', borderWidth: 1, borderColor: '#2a2a4a',
+    flex: 1, borderRadius: 14, padding: 20,
+    alignItems: 'center', borderWidth: 1,
   },
   iconCircle: {
     width: 56, height: 56, borderRadius: 28,
     justifyContent: 'center', alignItems: 'center', marginBottom: 12,
   },
-  actionLabel: { fontSize: 16, fontWeight: '700', color: '#fff' },
-  actionDesc: { fontSize: 12, color: '#666', marginTop: 4 },
+  actionLabel: { fontSize: 16, fontWeight: '700' },
+  actionDesc: { fontSize: 12, marginTop: 4 },
   searchSection: { marginBottom: 16 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   sectionTitle: { fontSize: 14, fontWeight: '600', color: '#aaa' },
   searchRow: { flexDirection: 'row', gap: 8 },
   searchInputWrapper: {
-    flex: 1, backgroundColor: '#1a1a2e', borderRadius: 12, borderWidth: 1, borderColor: '#333', paddingHorizontal: 12,
+    flex: 1, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12,
   },
-  searchInput: { color: '#fff', fontSize: 14, paddingVertical: 12 },
+  searchInput: { fontSize: 14, paddingVertical: 12 },
   searchBtn: {
     backgroundColor: '#e63946', borderRadius: 12, width: 48, height: 48,
     justifyContent: 'center', alignItems: 'center',
   },
   searchBtnDisabled: { opacity: 0.4 },
   statusCard: {
-    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 24,
-    alignItems: 'center', borderWidth: 1, borderColor: '#2a2a4a',
+    borderRadius: 14, padding: 24,
+    alignItems: 'center', borderWidth: 1,
   },
   loadingContainer: {
     position: 'relative', width: 80, height: 80,
     justifyContent: 'center', alignItems: 'center',
   },
   loadingCarIcon: { position: 'absolute' },
-  statusText: { fontSize: 18, fontWeight: '700', color: '#fff', marginTop: 16 },
-  statusDesc: { fontSize: 13, color: '#888', marginTop: 6, textAlign: 'center' },
+  statusText: { fontSize: 18, fontWeight: '700', marginTop: 16 },
+  statusDesc: { fontSize: 13, marginTop: 6, textAlign: 'center' },
   adWrapper: { marginTop: 16, width: '100%' },
   errorCard: {
-    backgroundColor: '#2a1a1a', borderRadius: 14, padding: 24,
-    alignItems: 'center', borderWidth: 1, borderColor: '#4a2222',
+    borderRadius: 14, padding: 24,
+    alignItems: 'center', borderWidth: 1,
   },
-  errorText: { fontSize: 14, color: '#ff6b6b', marginTop: 8, textAlign: 'center', lineHeight: 20 },
+  errorText: { fontSize: 14, marginTop: 8, textAlign: 'center', lineHeight: 20 },
   retryButton: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: '#e63946', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, marginTop: 16,
@@ -903,8 +906,8 @@ const styles = StyleSheet.create({
   retryButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   // Bulk car navigator
   carNavigator: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#1a1a2e',
-    borderRadius: 12, padding: 8, marginBottom: 12, borderWidth: 1, borderColor: '#2a2a4a',
+    flexDirection: 'row', alignItems: 'center',
+    borderRadius: 12, padding: 8, marginBottom: 12, borderWidth: 1,
   },
   navBtn: {
     width: 36, height: 36, borderRadius: 18, backgroundColor: '#333',
@@ -922,18 +925,18 @@ const styles = StyleSheet.create({
   carCounter: { fontSize: 12, color: '#888', marginLeft: 8, fontWeight: '600' },
   // AI Section
   aiSection: {
-    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
-    marginBottom: 12, borderWidth: 1.5, borderColor: '#4da6ff',
+    borderRadius: 14, padding: 16,
+    marginBottom: 12, borderWidth: 1.5,
   },
   aiHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  aiTitle: { fontSize: 16, fontWeight: '800', color: '#4da6ff', flex: 1 },
+  aiTitle: { fontSize: 16, fontWeight: '800', flex: 1 },
   confidenceBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   confHigh: { backgroundColor: 'rgba(76, 175, 80, 0.2)' },
   confMed: { backgroundColor: 'rgba(255, 152, 0, 0.2)' },
   confLow: { backgroundColor: 'rgba(244, 67, 54, 0.2)' },
   confText: { fontSize: 10, color: '#aaa', fontWeight: '600', textTransform: 'capitalize' },
-  carNameDisplay: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 4 },
-  carYearDisplay: { fontSize: 15, color: '#aaa', marginBottom: 10 },
+  carNameDisplay: { fontSize: 22, fontWeight: '800', marginBottom: 4 },
+  carYearDisplay: { fontSize: 15, marginBottom: 10 },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
   tag: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -943,56 +946,56 @@ const styles = StyleSheet.create({
   tagCondition: { backgroundColor: 'rgba(76, 175, 80, 0.15)' },
   tagSeries: { backgroundColor: 'rgba(156, 39, 176, 0.15)' },
   tagVariant: { backgroundColor: 'rgba(77, 166, 255, 0.15)' },
-  tagText: { fontSize: 11, color: '#ccc', fontWeight: '600' },
-  conditionNotes: { fontSize: 11, color: '#888', marginBottom: 10, fontStyle: 'italic', lineHeight: 16 },
+  tagText: { fontSize: 11, fontWeight: '600' },
+  conditionNotes: { fontSize: 11, marginBottom: 10, fontStyle: 'italic', lineHeight: 16 },
   aiDetails: {},
   aiRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: '#222',
+    paddingVertical: 6, borderBottomWidth: 0.5,
   },
-  aiLabel: { fontSize: 13, color: '#888', width: 70 },
-  aiValue: { fontSize: 13, color: '#fff', fontWeight: '600', flex: 1, textAlign: 'right' },
+  aiLabel: { fontSize: 13, width: 70 },
+  aiValue: { fontSize: 13, fontWeight: '600', flex: 1, textAlign: 'right' },
 
   // User Input Card (Year, Buy Price, Expected Price)
   userInputCard: {
-    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
-    marginBottom: 12, borderWidth: 1.5, borderColor: '#FFD700',
+    borderRadius: 14, padding: 16,
+    marginBottom: 12, borderWidth: 1.5,
   },
   userInputHeader: { marginBottom: 12 },
   userInputTitle: { fontSize: 16, fontWeight: '800', color: '#FFD700', marginTop: 2 },
-  userInputHint: { fontSize: 11, color: '#888', marginTop: 2 },
+  userInputHint: { fontSize: 11, marginTop: 2 },
   userInputGroup: { marginBottom: 10 },
   userInputLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  userInputLabel: { fontSize: 12, fontWeight: '700', color: '#aaa', textTransform: 'uppercase' },
+  userInputLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
   userInput: {
-    backgroundColor: '#0f0f23', borderRadius: 10, borderWidth: 1, borderColor: '#FFD700',
-    paddingHorizontal: 14, paddingVertical: 12, color: '#fff', fontSize: 16, fontWeight: '600',
+    borderRadius: 10, borderWidth: 1, borderColor: '#FFD700',
+    paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, fontWeight: '600',
   },
   roiPreview: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: '#0f0f23', borderRadius: 10, padding: 12, marginTop: 4,
+    borderRadius: 10, padding: 12, marginTop: 4,
   },
-  roiLabel: { fontSize: 13, color: '#888', fontWeight: '600' },
+  roiLabel: { fontSize: 13, fontWeight: '600' },
   roiValue: { fontSize: 18, fontWeight: '900', flex: 1 },
-  roiProfit: { fontSize: 13, color: '#888' },
+  roiProfit: { fontSize: 13 },
 
   // History card
   historyCard: {
-    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
+    borderRadius: 14, padding: 16,
     marginBottom: 12, borderWidth: 1, borderColor: '#FFD700',
   },
   historyHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   historyTitle: { fontSize: 15, fontWeight: '800', color: '#FFD700' },
-  historyText: { fontSize: 13, color: '#ccc', lineHeight: 20 },
+  historyText: { fontSize: 13, lineHeight: 20 },
 
   // Info card
   infoCard: {
-    backgroundColor: '#1a1a2e', borderRadius: 14, padding: 16,
-    marginBottom: 12, borderWidth: 1, borderColor: '#2a2a4a',
+    borderRadius: 14, padding: 16,
+    marginBottom: 12, borderWidth: 1,
   },
   infoHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   infoTitle: { fontSize: 14, fontWeight: '700', color: '#4da6ff' },
-  infoText: { fontSize: 13, color: '#aaa', lineHeight: 20 },
+  infoText: { fontSize: 13, lineHeight: 20 },
 
   // Action buttons
   resultActions: { gap: 10, marginTop: 4 },
@@ -1003,23 +1006,23 @@ const styles = StyleSheet.create({
   garageButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   wishlistButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: '#333', borderRadius: 12, padding: 16,
+    borderRadius: 12, padding: 16,
   },
-  wishlistButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  wishlistButtonText: { fontSize: 16, fontWeight: '700' },
   resetButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: '#1a1a2e', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#2a2a4a',
+    borderRadius: 12, padding: 14, borderWidth: 1,
   },
-  resetButtonText: { color: '#aaa', fontSize: 14, fontWeight: '600' },
+  resetButtonText: { fontSize: 14, fontWeight: '600' },
 
   // Duplicate alert modal
   dupeOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center',
+    justifyContent: 'center', alignItems: 'center',
     zIndex: 100, padding: 20,
   },
   dupeModal: {
-    backgroundColor: '#1a1a2e', borderRadius: 18, padding: 20,
+    borderRadius: 18, padding: 20,
     width: '100%', borderWidth: 2, borderColor: '#FF9800',
   },
   dupeHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
@@ -1031,8 +1034,8 @@ const styles = StyleSheet.create({
   },
   dupeSectionTitle: { fontSize: 13, fontWeight: '700', color: '#FF9800' },
   dupeCard: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f0f23',
-    borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#333', gap: 10,
+    flexDirection: 'row', alignItems: 'center',
+    borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, gap: 10,
   },
   dupeThumb: {
     width: 48, height: 48, borderRadius: 8, backgroundColor: '#12122a',
@@ -1041,8 +1044,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#2a2a4a',
   },
   dupeCardLeft: { flex: 1 },
-  dupeName: { fontSize: 14, fontWeight: '700', color: '#fff' },
-  dupeInfo: { fontSize: 11, color: '#888', marginTop: 2 },
+  dupeName: { fontSize: 14, fontWeight: '700' },
+  dupeInfo: { fontSize: 11, marginTop: 2 },
   dupePrice: { fontSize: 12, color: '#4caf50', fontWeight: '600', marginTop: 2 },
   dupeViewBtn: {
     backgroundColor: '#4da6ff', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,

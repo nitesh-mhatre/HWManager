@@ -9,6 +9,7 @@ import {
   Pressable,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useTheme } from '../context/ThemeContext';
 
 interface FilterOption {
   label: string;
@@ -33,32 +34,33 @@ export default function FilterDropdown({
   accentColor = '#4da6ff',
 }: FilterDropdownProps) {
   const [visible, setVisible] = useState(false);
+  const { colors } = useTheme();
   const activeCount = selectedValue ? 1 : 0;
   const displayLabel = selectedValue || label;
 
   return (
     <>
       <TouchableOpacity
-        style={[styles.trigger, selectedValue && { borderColor: accentColor, backgroundColor: `${accentColor}15` }]}
+        style={[styles.trigger, { backgroundColor: colors.surface, borderColor: colors.border }, selectedValue && { borderColor: accentColor, backgroundColor: `${accentColor}15` }]}
         onPress={() => setVisible(true)}
         activeOpacity={0.7}
       >
-        <MaterialIcons name={icon as any} size={14} color={selectedValue ? accentColor : '#888'} />
-        <Text style={[styles.triggerText, selectedValue && { color: accentColor }]} numberOfLines={1}>
+        <MaterialIcons name={icon as any} size={14} color={selectedValue ? accentColor : colors.textMuted} />
+        <Text style={[styles.triggerText, { color: colors.textMuted }, selectedValue && { color: accentColor }]} numberOfLines={1}>
           {displayLabel}
         </Text>
-        <MaterialIcons name="arrow-drop-down" size={16} color={selectedValue ? accentColor : '#666'} />
+        <MaterialIcons name="arrow-drop-down" size={16} color={selectedValue ? accentColor : colors.textMuted} />
       </TouchableOpacity>
 
       <Modal visible={visible} transparent animationType="fade" onRequestClose={() => setVisible(false)}>
-        <Pressable style={styles.overlay} onPress={() => setVisible(false)}>
-          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+        <Pressable style={[styles.overlay, { backgroundColor: colors.overlay }]} onPress={() => setVisible(false)}>
+          <Pressable style={[styles.sheet, { backgroundColor: colors.surface }]} onPress={(e) => e.stopPropagation()}>
             {/* Header */}
             <View style={styles.sheetHeader}>
               <MaterialIcons name={icon as any} size={20} color={accentColor} />
-              <Text style={styles.sheetTitle}>Select {label}</Text>
-              <TouchableOpacity onPress={() => setVisible(false)} style={styles.closeBtn}>
-                <MaterialIcons name="close" size={18} color="#888" />
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>Select {label}</Text>
+              <TouchableOpacity onPress={() => setVisible(false)} style={[styles.closeBtn, { backgroundColor: colors.surfaceAlt }] }>
+                <MaterialIcons name="close" size={18} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -67,8 +69,8 @@ export default function FilterDropdown({
               style={[styles.option, !selectedValue && { backgroundColor: `${accentColor}15` }]}
               onPress={() => { onSelect(''); setVisible(false); }}
             >
-              <MaterialIcons name="select-all" size={18} color="#888" />
-              <Text style={[styles.optionText, !selectedValue && { color: accentColor, fontWeight: '700' }]}>
+              <MaterialIcons name="select-all" size={18} color={colors.textMuted} />
+              <Text style={[styles.optionText, { color: colors.text }, !selectedValue && { color: accentColor, fontWeight: '700' }]}>
                 All {label}s
               </Text>
               {!selectedValue && <MaterialIcons name="check" size={18} color={accentColor} />}
@@ -85,7 +87,7 @@ export default function FilterDropdown({
                     style={[styles.option, isSelected && { backgroundColor: `${accentColor}15` }]}
                     onPress={() => { onSelect(item.value); setVisible(false); }}
                   >
-                    <Text style={[styles.optionText, isSelected && { color: accentColor, fontWeight: '700' }]}>
+                    <Text style={[styles.optionText, { color: colors.text }, isSelected && { color: accentColor, fontWeight: '700' }]}>
                       {item.label}
                     </Text>
                     {isSelected && <MaterialIcons name="check" size={18} color={accentColor} />}
