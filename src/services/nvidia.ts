@@ -313,7 +313,6 @@ export async function searchCarValue(
 ): Promise<{ estimatedValue: string; searchInfo: string; priceSources: { source: string; price: number; reference: string }[] }> {
   const messages = [
     {
-      system: 'You are a Hot Wheels collector market expert.',
       role: 'system',
       content: 'You are a Hot Wheels collector market expert. You provide REAL collector resale prices based on actual market knowledge. You understand that prices vary by year, rarity, condition, and color variant. You provide honest assessments.',
     },

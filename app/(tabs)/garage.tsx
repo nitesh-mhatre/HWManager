@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { getGarage, deleteCar, updateCar, analyzeDuplicateDetails, getViewPreferences, saveViewPreference } from '../../src/services/storage';
+import { getGarage, deleteCar, updateCar, getViewPreferences, saveViewPreference } from '../../src/services/storage';
 import { hapticLight, hapticMedium, hapticSuccess } from '../../src/services/haptics';
 import { HotWheelCar, AllocationType } from '../../src/types';
 import FilterDropdown from '../../src/components/FilterDropdown';
@@ -69,11 +69,33 @@ export default function GarageScreen() {
     const garage = await getGarage();
     const sorted = garage.sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
     setCars(sorted);
-    // Compute duplicate counts
+    // Compute duplicate counts in a single pass (no N+1 queries)
+    const norm = (s: string) => (s || '').toLowerCase().trim();
     const counts: Record<string, { same: number; diff: number }> = {};
+    const keyMap: Record<string, HotWheelCar[]> = {};
     for (const car of sorted) {
-      const analysis = await analyzeDuplicateDetails(car.name, car.model, car.year, car.color);
-      counts[car.id] = { same: analysis.sameColorCount, diff: analysis.differentColorCount };
+      const mk = `${norm(car.name)}|${norm(car.model)}|${norm(car.year)}`;
+      if (!keyMap[mk]) keyMap[mk] = [];
+      keyMap[mk].push(car);
+    }
+    for (const car of sorted) {
+      const mk = `${norm(car.name)}|${norm(car.model)}|${norm(car.year)}`;
+      const siblings = keyMap[mk];
+      if (siblings.length <= 1) { counts[car.id] = { same: 0, diff: 0 }; continue; }
+      const cColor = norm(car.color);
+      const cBase = cColor.split(' ')[0];
+      let same = 0;
+      let diff = 0;
+      for (const sib of siblings) {
+        if (sib.id === car.id) continue;
+        const sColor = norm(sib.color);
+        if (sColor === cColor || (sColor.length > 0 && cColor.length > 0 && sColor.split(' ')[0] === cBase)) {
+          same++;
+        } else {
+          diff++;
+        }
+      }
+      counts[car.id] = { same, diff };
     }
     setDupeCounts(counts);
   };
@@ -162,7 +184,13 @@ export default function GarageScreen() {
   }, [cars, search, filterYear, filterColor, filterSeries, filterRarity, filterCaseCode, filterAllocation, sortBy]);
 
   const totalValue = filtered.reduce((sum, c) => sum + (c.priceINR || c.expectedPrice || 0), 0);
-  const totalSpent = filtered.reduce((sum, c) => sum + (c.buyPrice || 0), 0);
+  const totalSpent = filtered.reduce((sum, c) => {
+    const ph = c.purchaseHistory || [];
+    if (ph.length > 0) {
+      return sum + ph.reduce((s, p) => s + p.buyPrice * (p.quantity || 1), 0);
+    }
+    return sum + (c.buyPrice || 0);
+  }, 0);
 
   const clearFilters = () => {
     setFilterYear('');

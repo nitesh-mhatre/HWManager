@@ -30,7 +30,7 @@ export default function SettingsScreen() {
   const [selectedModel, setSelectedModel] = useState('');
   const [loadingModels, setLoadingModels] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [stats, setStats] = useState({ total: 0, garage: 0, wishlist: 0, totalValue: 0 });
+  const [stats, setStats] = useState({ total: 0 });
   const [manualMode, setManualModeState] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -81,15 +81,7 @@ export default function SettingsScreen() {
 
   const loadStats = async () => {
     const cars = await getAllCars();
-    const garage = cars.filter((c) => c.inCollection);
-    const wishlist = cars.filter((c) => !c.inCollection);
-    const totalValue = garage.reduce((sum, c) => sum + (c.priceINR || c.expectedPrice || 0), 0);
-    setStats({
-      total: cars.length,
-      garage: garage.length,
-      wishlist: wishlist.length,
-      totalValue,
-    });
+    setStats({ total: cars.length });
   };
 
   const handleFetchModels = async () => {
@@ -231,27 +223,6 @@ export default function SettingsScreen() {
         <View style={styles.headerRow}>
           <MaterialIcons name="settings" size={28} color="#e63946" />
           <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
-        </View>
-      </View>
-
-      {/* Stats */}
-      <View style={[styles.statsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <View style={styles.statItem}>
-          <MaterialCommunityIcons name="car" size={20} color="#e63946" />
-          <Text style={styles.statValue}>{stats.garage}</Text>
-          <Text style={styles.statLabel}>Garage</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <MaterialIcons name="star" size={20} color="#FFD700" />
-          <Text style={styles.statValue}>{stats.wishlist}</Text>
-          <Text style={styles.statLabel}>Wishlist</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <MaterialIcons name="trending-up" size={20} color="#4caf50" />
-          <Text style={[styles.statValue, { color: '#4caf50' }]}>₹{stats.totalValue.toLocaleString('en-IN')}</Text>
-          <Text style={styles.statLabel}>Value</Text>
         </View>
       </View>
 
@@ -467,7 +438,7 @@ export default function SettingsScreen() {
           <MaterialIcons name="file-upload" size={20} color="#888" />
           <View style={styles.menuInfo}>
             <Text style={[styles.menuLabel, { color: colors.text }]}>Export Collection</Text>
-            <Text style={[styles.menuDesc, { color: colors.textMuted }]}>{stats.total} cars total</Text>
+            <Text style={[styles.menuDesc, { color: colors.textMuted }]}>Export your data</Text>
           </View>
           <MaterialIcons name="chevron-right" size={20} color="#555" />
         </TouchableOpacity>
@@ -530,6 +501,25 @@ export default function SettingsScreen() {
         }}>
           <MaterialIcons name="code" size={18} color="#fff" />
           <Text style={styles.saveButtonText}>Export as JSON</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Stats */}
+      <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={styles.sectionHeader}>
+          <MaterialIcons name="bar-chart" size={18} color="#4caf50" />
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Collection Stats</Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.menuItem, { borderBottomColor: colors.border }]}
+          onPress={() => { hapticLight(); router.push('/stats'); }}
+        >
+          <MaterialIcons name="insights" size={24} color="#4caf50" />
+          <View style={styles.menuInfo}>
+            <Text style={[styles.menuLabel, { color: colors.text }]}>View Collection Analytics</Text>
+            <Text style={[styles.menuDesc, { color: colors.textMuted }]}>States, timeline, duplicates & more</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color="#555" />
         </TouchableOpacity>
       </View>
 

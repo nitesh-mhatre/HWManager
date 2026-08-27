@@ -150,7 +150,8 @@ export default function ScanScreen() {
     const finalYear = userYear.trim() || r.year || '';
     const finalBuyPrice = parseFloat(userBuyPrice) || 0;
     const finalExpectedPrice = parseFloat(userExpectedPrice) || 0;
-    const purchaseId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    const carId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    const purchaseId = carId + '_p';
 
     const purchase: PurchaseEntry = finalBuyPrice > 0 ? {
       id: purchaseId,
@@ -163,7 +164,7 @@ export default function ScanScreen() {
     } : undefined as any;
 
     return {
-      id: purchaseId,
+      id: carId,
       name: r.name || 'Unknown Car',
       year: finalYear,
       series: r.series || '',
@@ -254,6 +255,16 @@ export default function ScanScreen() {
     const r = getCurrentResult();
     if (!r) return;
     const car = { ...buildCar(r), inCollection: false, condition: '' };
+    // Check for duplicates
+    const analysis = await analyzeDuplicateDetails(car.name, car.model, car.year, car.color);
+    if (analysis.sameColorCount > 0 || analysis.differentColorCount > 0) {
+      const allDupes = [...analysis.exactDupes, ...analysis.colorVariants];
+      setDuplicateCars(allDupes);
+      setDuplicateAnalysis(analysis);
+      setShowDuplicateAlert(true);
+      setPendingCar({ car, toGarage: false });
+      return;
+    }
     await addCar(car);
     Alert.alert('Added to Wishlist!', `${car.name} — ₹${car.priceINR}`, [
       { text: 'View Wishlist', onPress: () => router.push('/(tabs)/wishlist') },

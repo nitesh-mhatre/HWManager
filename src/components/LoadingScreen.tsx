@@ -61,7 +61,7 @@ export default function LoadingScreen({ onReady, duration = 3000 }: LoadingScree
       clearTimeout(timer);
       pulse.stop();
     };
-  }, []);
+  }, [duration, onReady]);
 
   return (
     <View style={styles.container}>

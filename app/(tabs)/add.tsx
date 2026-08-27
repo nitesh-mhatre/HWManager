@@ -479,8 +479,6 @@ export default function AddScreen() {
       {/* Input Mode: Manual */}
       {inputMode === 'manual' && <ManualEntryForm />}
 
-
-
     </ScrollView>
 
     {/* ===== DUPLICATE ALERT MODAL ===== */}
